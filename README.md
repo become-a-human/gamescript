@@ -1,6 +1,6 @@
 <h1>GameScript</h1>
 
-<a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/github/license/become-a-human/gamescript"/></a> <img src="https://img.shields.io/badge/License-WTFPL-brightgreen"/> <a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/badge/version-0.1.0-orange"/></a> <img src="https://img.shields.io/badge/python-3.9+-blue"/> <img src="https://img.shields.io/badge/output-C++-00599C"/>
+<a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/github/license/become-a-human/gamescript"/></a> <a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/badge/version-0.1.0-orange"/></a> <img src="https://img.shields.io/badge/python-3.9+-blue"/> <img src="https://img.shields.io/badge/output-C++-00599C"/>
 
 <p>DSL для геймдева, компилируется в C++. Пиши как на Python, работает как C++.</p>
 
