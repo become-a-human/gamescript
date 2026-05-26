@@ -9,14 +9,6 @@
 
 <h2>Как это работает</h2>
 
-<pre>
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  game.gs    │ ──→ │  GameScript │ ──→ │  game.cpp   │
-│  hero.gs    │     │  Compiler   │     │  (C++ код)  │
-│  enemy.gs   │     │  (Python)   │     └─────────────┘
-└─────────────┘     └─────────────┘
-</pre>
-
 <p>GameScript читает <code>.gs</code> файлы, парсит их, разрешает импорты (<code>@load</code>, <code>~grab</code>, <code>&link</code>) и генерирует C++ код.</p>
 
 <h2>Пример</h2>
@@ -172,7 +164,6 @@ make compile   # компиляция примеров
 <h2>Ссылки</h2>
 
 <ul>
-    <li><a href="https://github.com/become-a-human">GitHub автора</a></li>
     <li><a href="https://t.me/kraudov">Telegram</a></li>
     <li><a href="https://github.com/become-a-human/gamescript/issues">Баг-репорты и предложения</a></li>
 </ul>
