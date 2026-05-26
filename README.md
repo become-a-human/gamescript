@@ -1,31 +1,28 @@
 <h1>GameScript</h1>
 
-<a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/github/license/become-a-human/gamescript"/></a> <a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/badge/version-0.2.0-orange"/></a> <img src="https://img.shields.io/badge/python-3.9+-blue"/> <img src="https://img.shields.io/badge/output-C++-00599C"/>
+<a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/github/license/become-a-human/gamescript"/></a> <a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/badge/version-0.1.0-orange"/></a> <img src="https://img.shields.io/badge/python-3.9+-blue"/> <img src="https://img.shields.io/badge/output-C++-00599C"/>
 
 <p>DSL для геймдева, компилируется в C++. Пиши как на Python, работает как C++.</p>
 
 <blockquote>
-⚠️ <strong>Ранняя версия (v0.2.0).</strong> Активная разработка. API может меняться.
+⚠️ <strong>Ранняя версия (v0.1.0).</strong> Многие возможности ещё в разработке.
+Не рекомендуется для production-проектов. Используй на свой страх и риск.
 </blockquote>
 
 <h2>Как это работает</h2>
 
-<p>GameScript читает <code>.gs</code> файлы, парсит их и генерирует C++ код.
-<code># --header</code> → заголовочный файл (<code>.h</code>), без неё → <code>.cpp</code>.
-<code>@load</code> превращается в <code>#include</code>.</p>
+<p>GameScript читает <code>.gs</code> файлы, парсит их, разрешает импорты (<code>@load</code>, <code>~grab</code>, <code>&link</code>) и генерирует C++ код.</p>
 
 <h2>Пример</h2>
 
-<h3>hero.gs (с # --header)</h3>
+<h3>hero.gs</h3>
 
-<pre><code># --header
-# ===== ГЕРОЙ =====
-HERO = {
-    "name": "Артур",
-    "hp": 100,
-    "max_hp": 100,
-    "speed": 1.5,
-    "is_alive": true,
+<pre><code>HERO = {
+    "name": str("Артур"),
+    "hp": int(100),
+    "max_hp": int(100),
+    "speed": float(1.5),
+    "is_alive": bool(true),
 }
 
 class Hero(Entity):
@@ -41,7 +38,7 @@ class Hero(Entity):
             self.is_alive = false
 </code></pre>
 
-<h3>Сгенерированный hero.h</h3>
+<h3>Сгенерированный C++</h3>
 
 <pre><code>struct HERO_t {
     std::string name;
@@ -61,66 +58,56 @@ const HERO_t HERO = {
 
 class Hero : public Entity {
 public:
-    int hp;
-    bool is_alive;
+    void on_create() {
+        this->hp = HERO.max_hp;
+        this->is_alive = true;
+    }
     
-    void on_create();
-    void take_damage(int amount);
+    void take_damage(int amount) {
+        this->hp = this->hp - amount;
+        if (this->hp <= 0) {
+            this->is_alive = false;
+        }
+    }
 };
 </code></pre>
 
-<h2>Что уже работает в v0.2.0</h2>
+<h2>Что уже работает</h2>
 
 <ul>
-    <li><strong>Автовывод типов</strong> — <code>100</code>, <code>"текст"</code>, <code>true</code> без <code>int()</code>, <code>str()</code></li>
-    <li><strong>Словари → C++ struct</strong> с авто-типами</li>
-    <li><strong>Классы с наследованием</strong> + авто-поля из методов</li>
-    <li><strong>Раздельная компиляция</strong> — <code># --header</code> → <code>.h</code>, иначе <code>.cpp</code></li>
-    <li><strong>@load → #include</strong> — правильные зависимости между файлами</li>
-    <li><strong>Импорт Python-библиотек</strong> — <code>@load "math"</code> → <code>#include &lt;cmath&gt;</code></li>
-    <li><strong>Рантайм</strong> — <code>Entity</code> и <code>System</code> генерируются автоматически</li>
+    <li>Словари → C++ struct</li>
+    <li>Классы с наследованием</li>
+    <li>Методы с типизированными параметрами (<code>int</code>, <code>str</code>, <code>float</code>, <code>bool</code>)</li>
     <li><code>if</code>/<code>else</code>, <code>while</code>, <code>for</code>, <code>continue</code>, <code>break</code></li>
     <li>Операторы: <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>=</code>, <code>+=</code>, <code>-=</code>, <code>*=</code>, <code>/=</code></li>
     <li>Сравнения: <code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&gt;</code>, <code>&lt;=</code>, <code>&gt;=</code></li>
     <li>Вызов методов через <code>:</code></li>
-    <li>Док-строки: <code>"""описание"""</code></li>
+    <li>Док-строки: <code>"""описание"""</code> или <code>'''описание'''</code></li>
+    <li>Умные <code>#include</code> (только нужные)</li>
 </ul>
 
-<h2>Что нового в v0.2.0</h2>
+<h2>Чего ещё нет (в планах)</h2>
 
 <ul>
-    <li>✅ Автовывод типов — больше не нужны <code>int()</code>, <code>str()</code>, <code>bool()</code></li>
-    <li>✅ Раздельная компиляция с <code># --header</code></li>
-    <li>✅ <code>@load</code> → <code>#include</code> (не встраивает код)</li>
-    <li>✅ Авто-поля классов из <code>self.xxx = ...</code></li>
-    <li>✅ Рантайм <code>Entity</code> и <code>System</code></li>
-    <li>✅ Импорт стандартных библиотек</li>
-</ul>
-
-<h2>В планах (v0.3.0+)</h2>
-
-<ul>
-    <li>Компиляция в бинарник (<code>--build</code>)</li>
+    <li>Раздельная компиляция (каждый .gs → свой .h/.cpp)</li>
     <li>Массивы и словари как полноценные типы в методах</li>
     <li>Строковые операции</li>
-    <li>Цикл <code>for</code> с диапазоном (<code>for i in 0..10</code>)</li>
-    <li><code>switch</code>/<code>case</code></li>
-    <li>Модули: <code>import</code> вместо <code>@load</code></li>
-    <li>Дебаг-режим с картой исходников</li>
+    <li>Импорт стандартной библиотеки</li>
     <li>Оптимизация кодгена</li>
-    <li>Больше примеров: джойстик, инвентарь, диалоги</li>
+    <li>Поддержка Android/iOS из коробки</li>
 </ul>
 
 <h2>Система импортов</h2>
 
 <table border="1">
-    <tr><th>Команда</th><th>Пример</th><th>C++ вывод</th></tr>
-    <tr><td><code>@load</code></td><td><code>@load "hero"</code></td><td><code>#include "hero.h"</code></td></tr>
-    <tr><td><code>@load?</code></td><td><code>@load? "plugin"</code></td><td>Опциональный</td></tr>
-    <tr><td><code>@load like</code></td><td><code>@load "math" like "Math"</code></td><td><code>#include &lt;cmath&gt;</code> + namespace</td></tr>
-    <tr><td><code>~grab</code></td><td><code>~grab &lt;Hero&gt;</code></td><td><code>using Hero;</code></td></tr>
-    <tr><td><code>~grab like</code></td><td><code>~grab &lt;Hero&gt; like &lt;Player&gt;</code></td><td><code>using Player = Hero;</code></td></tr>
+    <tr><th>Команда</th><th>Пример</th><th>Описание</th></tr>
+    <tr><td><code>@load</code></td><td><code>@load "hero.gs"</code></td><td>Импорт всего файла</td></tr>
+    <tr><td><code>@load?</code></td><td><code>@load? "plugin.gs"</code></td><td>Опциональный импорт</td></tr>
+    <tr><td><code>@load like</code></td><td><code>@load "hero" like "Player"</code></td><td>Импорт с переименованием</td></tr>
+    <tr><td><code>~grab</code></td><td><code>~grab &lt;Hero&gt;</code></td><td>Захват класса/словаря</td></tr>
+    <tr><td><code>~grab like</code></td><td><code>~grab &lt;Hero&gt; like &lt;Player&gt;</code></td><td>Захват с переименованием</td></tr>
     <tr><td><code>&link</code></td><td><code>&link &lt;on_create&gt;</code></td><td>Захват функции</td></tr>
+    <tr><td><code>&link like</code></td><td><code>&link &lt;on_create&gt; like &lt;init&gt;</code></td><td>Захват функции с переименованием</td></tr>
 </table>
 
 <h2>Установка</h2>
@@ -134,12 +121,12 @@ pip install -e .
 
 <pre><code># Компиляция
 gamescript hero.gs                    # вывод в консоль
-gamescript hero.gs hero.h             # в файл
+gamescript hero.gs hero.cpp           # в файл
 
 # Python API
 from gamescript import compile_file, compile_text
 
-cpp = compile_text('HERO = { "hp": 100 }')
+cpp = compile_text('HERO = { "hp": int(100) }')
 compile_file("game.gs", "output.cpp")
 
 # Тесты
@@ -158,22 +145,20 @@ make compile   # компиляция примеров
 │   ├── parser.py        # Парсер
 │   ├── codegen_cpp.py   # Генератор C++
 │   └── compiler.py      # Главный модуль
-├── runtime/             # Рантайм
-│   └── runtime.h        # Entity, System
 ├── examples/            # Примеры на GameScript
 │   ├── hero.gs
 │   ├── weapons.gs
 │   ├── enemies.gs
 │   ├── inventory.gs
 │   ├── equipment.gs
-│   └── mainfile.gs
+│   ├── maps.gs
+│   └── full_game.gs
 ├── tests/               # Тесты
 │   ├── test_lexer.py
 │   ├── test_parser.py
 │   └── test_compiler.py
 ├── Makefile
 ├── setup.py
-├── CHANGELOG.md
 ├── LICENSE
 └── README.md
 </code></pre>
@@ -182,7 +167,7 @@ make compile   # компиляция примеров
 
 <ul>
     <li><a href="https://t.me/kraudov">Telegram</a></li>
-    <li><a href="https://github.com/become-a-human/gamescript/issues">Баг-репорты</a></li>
+    <li><a href="https://github.com/become-a-human/gamescript/issues">Баг-репорты и предложения</a></li>
 </ul>
 
 <h2>Лицензия</h2>
