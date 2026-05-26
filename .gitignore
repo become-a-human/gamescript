@@ -1,0 +1,12 @@
+cat > .gitignore << 'EOF'
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+examples/generated/
+*.egg
+.DS_Store
+Thumbs.db
+EOF
