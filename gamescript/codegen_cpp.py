@@ -9,6 +9,20 @@ from typing import List, Tuple
 from .ast_nodes import *
 
 
+# Встроенные библиотеки Python → C++ заголовки
+BUILTIN_LIBS = {
+    'math': '<cmath>',
+    'random': '<random>',
+    'time': '<chrono>',
+    'os': '<filesystem>',
+    'sys': '<iostream>',
+    'json': '<nlohmann/json.hpp>',
+    're': '<regex>',
+    'collections': '<map>',
+    'runtime': '"runtime.h"',
+}
+
+
 class CodeGenError(Exception):
     """Ошибка генерации кода."""
     pass
@@ -45,20 +59,20 @@ class CppCodeGen:
     # ===== Добавление импортов =====
 
     def add_load(self, stmt: LoadStmt):
-        """
-        Добавляет @load в вывод.
-        @load "hero" → #include "hero.h"
-        @load "hero" like "Player" → #include "hero.h" + namespace Player = hero;
-        """
         stem = stmt.filename.rsplit('.', 1)[0].split('/')[-1]
+        
+        if stem in BUILTIN_LIBS:
+            self.includes.append(f'#include {BUILTIN_LIBS[stem]}')
+            if stmt.alias and stem in BUILTIN_LIBS:
+                self.includes.append(f'namespace {stmt.alias} = {stem};')
+            return
+        
         self.includes.append(f'#include "{stem}.h"')
-        if stmt.alias:
+        if stmt.alias and stem in BUILTIN_LIBS:
             self.includes.append(f'namespace {stmt.alias} = {stem};')
         for name, alias in stmt.grabs:
             if alias:
                 self.includes.append(f'using {alias} = {name};')
-            else:
-                self.includes.append(f'// using {name};')
 
     def add_grab(self, stmt: GrabStmt):
         """
@@ -78,9 +92,9 @@ class CppCodeGen:
         """
         for name, alias in stmt.names:
             if alias:
-                self.includes.append(f'auto& {alias} = {name};')
+                self.includes.append(f'// &link: {alias} = {name};')
             else:
-                self.includes.append(f'// auto& {name} = ...;')
+                self.includes.append(f'// &link: {name};')
 
     # ===== Главный метод =====
 
@@ -97,10 +111,12 @@ class CppCodeGen:
     # ===== Сборка =====
 
     def _assemble(self) -> str:
-        """Собирает все куски в один файл."""
         parts = []
         
-        # Пользовательские инклюды (@load)
+        # runtime.h всегда первым
+        parts.append('#include "runtime.h"')
+        parts.append('')
+        
         for inc in self.includes:
             parts.append(inc)
         if self.includes:
@@ -129,7 +145,38 @@ class CppCodeGen:
         return '\n'.join(parts)
 
     # ===== Словари → struct =====
-
+    
+    def generate_header(self, ast: Program) -> str:
+        """Генерирует только заголовочный файл (.h)."""
+        for stmt in ast.statements:
+            if isinstance(stmt, DictDef):
+                self._generate_dict_def(stmt)
+            elif isinstance(stmt, ClassDef):
+                self._generate_class_decl(stmt)
+        return self._assemble()
+    
+    def _generate_class_decl(self, node: ClassDef):
+        """Только объявление класса (без тел методов)."""
+        lines = []
+        lines.append(f'class {node.name} : public {node.parent} {{')
+        lines.append('public:')
+        
+        if node.doc:
+            lines.append(f'    // {node.doc}')
+        
+        if node.methods:
+            for method in node.methods:
+                real_params = [(n, t) for n, t in method.params if n != 'self']
+                type_map = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool'}
+                params_str = ', '.join(f'{type_map.get(t, t)} {n}' for n, t in real_params)
+                lines.append(f'    void {method.name}({params_str});')
+        else:
+            lines.append(f'    // Пустой класс')
+        
+        lines.append('};')
+        lines.append('')
+        self.classes.extend(lines)
+    
     def _generate_dict_def(self, node: DictDef):
         """Генерирует C++ struct и inline const экземпляр из DictDef."""
         if not isinstance(node.value, DictLiteral):
@@ -235,13 +282,36 @@ class CppCodeGen:
     # ===== Классы → C++ class =====
 
     def _generate_class_def(self, node: ClassDef):
-        """Генерирует C++ class из ClassDef."""
+        """Генерирует C++ class из ClassDef с авто-полями."""
         lines = []
+        
+        # Собираем все поля из self.xxx = ... в методах
+        fields = {}
+        for method in node.methods:
+            for stmt in method.body:
+                if isinstance(stmt, Assignment) and stmt.name.startswith('self.'):
+                    field_name = stmt.name.replace('self.', '')
+                    if field_name not in fields:
+                        fields[field_name] = self._infer_type(stmt.value)
+                elif isinstance(stmt, CompoundAssignment) and stmt.name.startswith('self.'):
+                    field_name = stmt.name.replace('self.', '')
+                    if field_name not in fields:
+                        fields[field_name] = 'int'
+        
         lines.append(f'class {node.name} : public {node.parent} {{')
         lines.append('public:')
         
         if node.doc:
             lines.append(f'    // {node.doc}')
+        
+        # Генерируем поля
+        type_map = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool'}
+        for field_name, field_type in fields.items():
+            cpp_type = type_map.get(field_type, 'int')
+            lines.append(f'    {cpp_type} {field_name};')
+        
+        if fields:
+            lines.append('')
         
         if node.methods:
             for method in node.methods:
@@ -252,7 +322,23 @@ class CppCodeGen:
         lines.append('};')
         lines.append('')
         self.classes.extend(lines)
-
+    
+    def _infer_type(self, value) -> str:
+        if isinstance(value, NumberLiteral):
+            if isinstance(value.value, float):
+                return 'float'
+            return 'int'
+        elif isinstance(value, StringLiteral):
+            return 'str'
+        elif isinstance(value, BoolLiteral):
+            return 'bool'
+        elif isinstance(value, FieldAccess):
+            # self.xxx = HERO.name → строка (если поле 'name')
+            if value.field in ('name', 'title', 'description'):
+                return 'str'
+            return 'int'
+        return 'int'
+    
     def _generate_method(self, method: MethodDef) -> List[str]:
         """Генерирует определение метода."""
         lines = []

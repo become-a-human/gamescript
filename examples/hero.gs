@@ -1,18 +1,19 @@
+# --header
 # ===== ГЕРОЙ =====
 HERO = {
-    "name": str("Артур"),
-    "title": str("Странник"),
-    "age": int(25),
-    "hp": int(100),
-    "max_hp": int(100),
-    "mp": int(50),
-    "max_mp": int(50),
-    "attack": int(15),
-    "defense": int(8),
-    "speed": float(1.5),
-    "level": int(1),
-    "exp": int(0),
-    "is_alive": bool(true),
+    "name": "Артур",
+    "title": "Странник",
+    "age": 25,
+    "hp": 100,
+    "max_hp": 100,
+    "mp": 50,
+    "max_mp": 50,
+    "attack": 15,
+    "defense": 8,
+    "speed": 1.5,
+    "level": 1,
+    "exp": 0,
+    "is_alive": true,
 }
 
 class Hero(Entity):

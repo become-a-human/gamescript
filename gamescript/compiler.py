@@ -24,6 +24,50 @@ from .ast_nodes import (
 ALLOWED_EXTENSIONS = {'.gs', '.gscript'}
 
 
+MAIN_FILE = 'mainfile.gs'
+
+
+RUNTIME_H = '''#pragma once
+#include <string>
+#include <vector>
+#include <map>
+#include <any>
+#include <iostream>
+
+class Entity {
+public:
+    std::string name;
+    int hp = 100;
+    int max_hp = 100;
+    int mp = 50;
+    int max_mp = 50;
+    int attack = 10;
+    int defense = 5;
+    float speed = 1.0f;
+    int level = 1;
+    int exp = 0;
+    bool is_alive = true;
+    
+    virtual ~Entity() = default;
+    virtual void on_create() {}
+    virtual void on_turn(Entity& target) {}
+};
+
+class System {
+public:
+    virtual ~System() = default;
+    virtual void on_start() {}
+    virtual void on_update() {}
+};
+'''
+
+def ensure_runtime(output_dir: Path):
+    """Создаёт runtime.h если его нет."""
+    runtime_path = output_dir / 'runtime.h'
+    if not runtime_path.exists():
+        runtime_path.write_text(RUNTIME_H, encoding='utf-8')
+
+
 def compile_text(source: str, output_path: Optional[str] = None,
                  base_path: Optional[Path] = None,
                  already_imported: Optional[Set[str]] = None) -> str:
@@ -45,23 +89,19 @@ def compile_text(source: str, output_path: Optional[str] = None,
     if already_imported is None:
         already_imported = set()
     
-    # Этап 1: лексинг
     lexer = Lexer(source)
     tokens = lexer.tokenize()
-    
-    # Этап 2: парсинг
     parser = Parser(tokens)
     ast = parser.parse()
-    
-    # Этап 3: разрешение импортов
-    ast = resolve_imports(ast, base_path or Path.cwd(), already_imported)
-    
-    # Этап 4: генерация C++
+
     gen = CppCodeGen()
-    
-    # Добавляем импорты в вывод (#include, using, namespace)
+
     for stmt in ast.statements:
         if isinstance(stmt, LoadStmt):
+            if not stmt.optional:
+                filepath = _find_file(stmt.filename, base_path or Path.cwd())
+                if filepath is None:
+                    raise ParseError(f"@load: файл не найден: {stmt.filename}", 0, 0)
             gen.add_load(stmt)
         elif isinstance(stmt, GrabStmt):
             gen.add_grab(stmt)
@@ -70,7 +110,6 @@ def compile_text(source: str, output_path: Optional[str] = None,
     
     cpp_code = gen.generate(ast)
     
-    # Сохраняем если нужно
     if output_path:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,9 +132,8 @@ def resolve_imports(ast: Program, base_path: Path,
     
     for stmt in ast.statements:
         if isinstance(stmt, LoadStmt):
-            # @load / @load? — загружает весь файл
-            loaded = _handle_load(stmt, base_path, already_imported)
-            new_statements.extend(loaded)
+            # Просто оставляем как есть — кодген добавит #include
+            new_statements.append(stmt)
         elif isinstance(stmt, GrabStmt):
             # ~grab / ~grab? — захватывает конкретные имена
             grabbed = _handle_grab(stmt, base_path, already_imported)
@@ -112,68 +150,28 @@ def resolve_imports(ast: Program, base_path: Path,
     return ast
 
 
-def _handle_load(stmt: LoadStmt, base_path: Path,
-                 already_imported: Set[str]) -> List[ASTNode]:
-    """
-    Обрабатывает @load / @load?.
-    Загружает весь файл и рекурсивно разрешает его импорты.
-    """
-    # Проверяем, не загружен ли уже этот файл
-    if stmt.filename in already_imported:
-        return []
-    
-    # Ищем файл
-    filepath = _find_file(stmt.filename, base_path)
-    if filepath is None:
-        if stmt.optional:
-            return []  # @load? — молча пропускаем
-        raise ParseError(f"@load: файл не найден: {stmt.filename}", 0, 0)
-    
-    already_imported.add(stmt.filename)
-    
-    # Читаем и парсим файл
-    source = filepath.read_text(encoding='utf-8')
-    lexer = Lexer(source)
-    tokens = lexer.tokenize()
-    parser = Parser(tokens)
-    imported_ast = parser.parse()
-    
-    # Рекурсивно разрешаем импорты внутри файла
-    imported_ast = resolve_imports(imported_ast, filepath.parent, already_imported)
-    
-    return imported_ast.statements
-
-
 def _handle_grab(stmt: GrabStmt, base_path: Path,
                  already_imported: Set[str]) -> List[ASTNode]:
-    """
-    Обрабатывает ~grab / ~grab?.
-    Захватывает конкретные классы/словари по имени.
-    """
     results = []
     
     for name, alias in stmt.names:
-        # Ищем в уже загруженных файлах
-        found = _find_and_extract_name(name, alias, already_imported, base_path)
+        found = None
         
-        # Если не нашли — ищем во всех .gs файлах в base_path
-        if found is None:
-            for f in base_path.glob("*.gs"):
-                if f.name not in already_imported:
-                    already_imported.add(f.name)
-                    source = f.read_text(encoding='utf-8')
-                    lexer = Lexer(source)
-                    tokens = lexer.tokenize()
-                    parser = Parser(tokens)
-                    ast = parser.parse()
-                    for s in ast.statements:
-                        if isinstance(s, (DictDef, ClassDef)) and s.name == name:
-                            if alias:
-                                s.name = alias
-                            found = s
-                            break
-                if found:
+        # Ищем во всех .gs файлах
+        for f in base_path.glob("*.gs"):
+            source = f.read_text(encoding='utf-8')
+            lexer = Lexer(source)
+            tokens = lexer.tokenize()
+            parser = Parser(tokens)
+            ast = parser.parse()
+            for s in ast.statements:
+                if isinstance(s, (DictDef, ClassDef)) and s.name == name:
+                    if alias:
+                        s.name = alias
+                    found = s
                     break
+            if found:
+                break
         
         if found:
             results.append(found)
@@ -185,34 +183,27 @@ def _handle_grab(stmt: GrabStmt, base_path: Path,
 
 def _handle_link(stmt: LinkStmt, base_path: Path,
                  already_imported: Set[str]) -> List[ASTNode]:
-    """
-    Обрабатывает &link / &link?.
-    Захватывает конкретные функции/методы по имени.
-    """
     results = []
     
     for name, alias in stmt.names:
-        found = _find_and_extract_function(name, alias, already_imported, base_path)
+        found = None
         
-        if found is None:
-            for f in base_path.glob("*.gs"):
-                if f.name not in already_imported:
-                    already_imported.add(f.name)
-                    source = f.read_text(encoding='utf-8')
-                    lexer = Lexer(source)
-                    tokens = lexer.tokenize()
-                    parser = Parser(tokens)
-                    ast = parser.parse()
-                    for s in ast.statements:
-                        if isinstance(s, ClassDef):
-                            for method in s.methods:
-                                if method.name == name:
-                                    if alias:
-                                        method.name = alias
-                                    found = method
-                                    break
-                if found:
-                    break
+        for f in base_path.glob("*.gs"):
+            source = f.read_text(encoding='utf-8')
+            lexer = Lexer(source)
+            tokens = lexer.tokenize()
+            parser = Parser(tokens)
+            ast = parser.parse()
+            for s in ast.statements:
+                if isinstance(s, ClassDef):
+                    for method in s.methods:
+                        if method.name == name:
+                            if alias:
+                                method.name = alias
+                            found = method
+                            break
+            if found:
+                break
         
         if found:
             results.append(found)
@@ -296,23 +287,9 @@ def _find_file(filename: str, base_path: Path) -> Optional[Path]:
     return None
 
 
-def compile_file(input_path: str, output_path: Optional[str] = None) -> str:
-    """
-    Компилирует .gs или .gscript файл в C++.
-    
-    Args:
-        input_path:  путь к .gs или .gscript файлу
-        output_path: путь для .cpp файла (по умолчанию: input.cpp)
-    
-    Returns:
-        строка с C++ кодом
-    
-    Raises:
-        ValueError: если расширение файла не .gs и не .gscript
-    """
+def compile_file(input_path: str, output_path: Optional[str] = None, header_only: bool = False) -> str:
     input_file = Path(input_path)
     
-    # Проверка расширения
     if input_file.suffix not in ALLOWED_EXTENSIONS:
         raise ValueError(
             f"Неверное расширение файла: '{input_file.suffix}'. "
@@ -321,10 +298,40 @@ def compile_file(input_path: str, output_path: Optional[str] = None) -> str:
     
     source = input_file.read_text(encoding='utf-8')
     
+    # Проверяем директиву в первой строке
+    first_line = source.split('\n')[0].strip()
+    if first_line == '# --header':
+        header_only = True
+    
     if output_path is None:
-        output_path = str(input_file.with_suffix('.cpp'))
+        suffix = '.h' if header_only else '.cpp'
+        output_path = str(input_file.with_suffix(suffix))
+    
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ensure_runtime(output_dir)
+    
+    if header_only:
+        return compile_header(source, output_path)
     
     return compile_text(source, output_path, base_path=input_file.parent)
+
+
+def compile_header(source: str, output_path: str) -> str:
+    lexer = Lexer(source)
+    tokens = lexer.tokenize()
+    parser = Parser(tokens)
+    ast = parser.parse()
+    
+    gen = CppCodeGen()
+    cpp_code = gen.generate_header(ast)
+    
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(cpp_code, encoding='utf-8')
+    print(f'✓ Сгенерирован {output_path}')
+    
+    return cpp_code
 
 
 # ===== CLI =====
@@ -332,8 +339,7 @@ if __name__ == '__main__':
     import sys
     
     if len(sys.argv) < 2:
-        print("Использование: python -m gamescript.compiler <файл.gs> [выход.cpp]")
-        print(f"  Поддерживаемые расширения: {', '.join(ALLOWED_EXTENSIONS)}")
+        print("Использование: python -m gamescript.compiler <файл.gs> [выход]")
         sys.exit(1)
     
     input_file = sys.argv[1]

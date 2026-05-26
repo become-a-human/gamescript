@@ -30,12 +30,12 @@ test-compiler:
 # Компиляция примеров
 compile:
 	@mkdir -p examples/generated
-	python -m gamescript.compiler examples/hero.gs examples/generated/hero.cpp
-	python -m gamescript.compiler examples/weapons.gs examples/generated/weapons.cpp
-	python -m gamescript.compiler examples/enemies.gs examples/generated/enemies.cpp
-	python -m gamescript.compiler examples/inventory.gs examples/generated/inventory.cpp
-	python -m gamescript.compiler examples/equipment.gs examples/generated/equipment.cpp
-	python -m gamescript.compiler examples/full_game.gs examples/generated/full_game.cpp
+	python -m gamescript.compiler examples/hero.gs examples/generated/hero.h
+	python -m gamescript.compiler examples/weapons.gs examples/generated/weapons.h
+	python -m gamescript.compiler examples/enemies.gs examples/generated/enemies.h
+	python -m gamescript.compiler examples/inventory.gs examples/generated/inventory.h
+	python -m gamescript.compiler examples/equipment.gs examples/generated/equipment.h
+	python -m gamescript.compiler examples/mainfile.gs examples/generated/mainfile.cpp
 	@echo "✓ Все примеры скомпилированы в examples/generated/"
 
 # Очистка
