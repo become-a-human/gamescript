@@ -20,6 +20,8 @@ BUILTIN_LIBS = {
     're': '<regex>',
     'collections': '<map>',
     'runtime': '"runtime.h"',
+    'sdl2': '<SDL2/SDL.h>',
+    'sdl2_image': '<SDL2/SDL_image.h>',
 }
 
 
@@ -109,8 +111,6 @@ class CppCodeGen:
         return self._assemble()
     
     def generate_main(self, ast: Program) -> str:
-        """Генерирует main() на основе AST."""
-        # Ищем главный класс (наследник System)
         game_class = 'Game'
         for stmt in ast.statements:
             if isinstance(stmt, ClassDef) and stmt.parent == 'System':
@@ -119,8 +119,29 @@ class CppCodeGen:
         
         return f'''
 int main() {{
+    SDL_Init(SDL_INIT_VIDEO);
+    SDL_Window* window = SDL_CreateWindow("GameScript", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, 0);
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    
     {game_class} game;
     game.on_start();
+    
+    bool running = true;
+    while (running) {{
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {{
+            if (event.type == SDL_QUIT) running = false;
+        }}
+        
+        SDL_RenderClear(renderer);
+        game.on_update();
+        SDL_RenderPresent(renderer);
+        SDL_Delay(16);
+    }}
+    
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
     return 0;
 }}
 '''
@@ -324,7 +345,10 @@ int main() {{
         # Генерируем поля
         type_map = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool'}
         for field_name, field_type in fields.items():
-            cpp_type = type_map.get(field_type, 'int')
+            if field_type in type_map:
+                cpp_type = type_map[field_type]
+            else:
+                cpp_type = f'{field_type}*'
             lines.append(f'    {cpp_type} {field_name};')
         
         if fields:
@@ -342,18 +366,18 @@ int main() {{
     
     def _infer_type(self, value) -> str:
         if isinstance(value, NumberLiteral):
-            if isinstance(value.value, float):
-                return 'float'
-            return 'int'
+            return 'float' if isinstance(value.value, float) else 'int'
         elif isinstance(value, StringLiteral):
             return 'str'
         elif isinstance(value, BoolLiteral):
             return 'bool'
         elif isinstance(value, FieldAccess):
-            # self.xxx = HERO.name → строка (если поле 'name')
-            if value.field in ('name', 'title', 'description'):
+            if value.field in ('name', 'title', 'description', 'image_path'):
                 return 'str'
             return 'int'
+        elif isinstance(value, Identifier):
+            # Если присваиваем класс (MainHero) — тип это имя класса
+            return value.name
         return 'int'
     
     def _generate_method(self, method: MethodDef) -> List[str]:

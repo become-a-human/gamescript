@@ -15,7 +15,7 @@ from typing import Optional, Set, List
 
 from .lexer import Lexer
 from .parser import Parser, ParseError
-from .codegen_cpp import CppCodeGen
+from .codegen_cpp import CppCodeGen, BUILTIN_LIBS
 from .ast_nodes import (
     Program, DictDef, ClassDef, MethodDef,
     LoadStmt, GrabStmt, LinkStmt, ASTNode
@@ -32,22 +32,48 @@ RUNTIME_H = '''#pragma once
 #include <map>
 #include <any>
 #include <iostream>
+#ifdef HAS_SDL2
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_image.h>
+#endif
 
 class Entity {
 public:
     std::string name;
-    int hp = 100;
-    int max_hp = 100;
-    int mp = 50;
-    int max_mp = 50;
-    int attack = 10;
-    int defense = 5;
+    std::string image_path;
+    int x = 0, y = 0;
+    int hp = 100, max_hp = 100;
+    int mp = 50, max_mp = 50;
+    int attack = 10, defense = 5;
     float speed = 1.0f;
-    int level = 1;
-    int exp = 0;
+    int level = 1, exp = 0;
     bool is_alive = true;
     
-    virtual ~Entity() = default;
+#ifdef HAS_SDL2
+    SDL_Texture* texture = nullptr;
+    
+    virtual void load(SDL_Renderer* renderer) {
+        if (!image_path.empty()) {
+            SDL_Surface* surface = IMG_Load(image_path.c_str());
+            if (surface) {
+                texture = SDL_CreateTextureFromSurface(renderer, surface);
+                SDL_FreeSurface(surface);
+            }
+        }
+    }
+    
+    virtual void draw(SDL_Renderer* renderer) {
+        if (texture) {
+            SDL_Rect dst = {x, y, 32, 32};
+            SDL_RenderCopy(renderer, texture, nullptr, &dst);
+        }
+    }
+    
+    virtual ~Entity() {
+        if (texture) SDL_DestroyTexture(texture);
+    }
+#endif
+    
     virtual void on_create() {}
     virtual void on_turn(Entity& target) {}
 };
@@ -84,9 +110,11 @@ def compile_text(source: str, output_path: Optional[str] = None,
     for stmt in ast.statements:
         if isinstance(stmt, LoadStmt):
             if not stmt.optional:
-                filepath = _find_file(stmt.filename, base_path or Path.cwd())
-                if filepath is None:
-                    raise ParseError(f"@load: файл не найден: {stmt.filename}", 0, 0)
+                stem = stmt.filename.rsplit('.', 1)[0].split('/')[-1]
+                if stem not in BUILTIN_LIBS:
+                    filepath = _find_file(stmt.filename, base_path or Path.cwd())
+                    if filepath is None:
+                        raise ParseError(f"@load: файл не найден: {stmt.filename}", 0, 0)
             gen.add_load(stmt)
         elif isinstance(stmt, GrabStmt):
             gen.add_grab(stmt)
@@ -309,7 +337,8 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
         binary_path = str(Path(output_path).with_suffix(''))
         import subprocess
         result = subprocess.run(
-            ['g++', '-std=c++17', '-I', str(output_dir), output_path, '-o', binary_path],
+            ['g++', '-std=c++17', '-DHAS_SDL2', '-I', str(output_dir), 
+             output_path, '-o', binary_path, '-lSDL2', '-lSDL2_image'],
             capture_output=True, text=True
         )
         if result.returncode != 0:

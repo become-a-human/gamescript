@@ -3,9 +3,11 @@
 HERO = {
     "name": "Артур",
     "title": "Странник",
+    "image": "hero.png",
+    "x": 100,
+    "y": 200,
     "age": 25,
     "hp": 100,
-    "max_hp": 100,
     "mp": 50,
     "max_mp": 50,
     "attack": 15,
