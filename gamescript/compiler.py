@@ -8,6 +8,8 @@
     4. Генерация C++ кода
 """
 
+import subprocess
+
 from pathlib import Path
 from typing import Optional, Set, List
 
@@ -22,9 +24,6 @@ from .ast_nodes import (
 
 # Допустимые расширения файлов GameScript
 ALLOWED_EXTENSIONS = {'.gs', '.gscript'}
-
-
-MAIN_FILE = 'mainfile.gs'
 
 
 RUNTIME_H = '''#pragma once
@@ -70,22 +69,8 @@ def ensure_runtime(output_dir: Path):
 
 def compile_text(source: str, output_path: Optional[str] = None,
                  base_path: Optional[Path] = None,
-                 already_imported: Optional[Set[str]] = None) -> str:
-    """
-    Компилирует строку с исходным кодом GameScript в C++.
-    
-    Args:
-        source:           исходный код на GameScript
-        output_path:      если указан — сохраняет результат в файл
-        base_path:        базовая папка для разрешения импортов
-        already_imported: множество уже импортированных файлов (для рекурсии)
-    
-    Returns:
-        строка с валидным C++ кодом
-    
-    Raises:
-        SyntaxError: если исходный код содержит ошибки
-    """
+                 already_imported: Optional[Set[str]] = None,
+                 build: bool = False) -> str:
     if already_imported is None:
         already_imported = set()
     
@@ -109,6 +94,9 @@ def compile_text(source: str, output_path: Optional[str] = None,
             gen.add_link(stmt)
     
     cpp_code = gen.generate(ast)
+    
+    if build:
+        cpp_code += '\n' + gen.generate_main(ast)
     
     if output_path:
         path = Path(output_path)
@@ -287,7 +275,8 @@ def _find_file(filename: str, base_path: Path) -> Optional[Path]:
     return None
 
 
-def compile_file(input_path: str, output_path: Optional[str] = None, header_only: bool = False) -> str:
+def compile_file(input_path: str, output_path: Optional[str] = None, 
+                 header_only: bool = False, build: bool = False) -> str:
     input_file = Path(input_path)
     
     if input_file.suffix not in ALLOWED_EXTENSIONS:
@@ -314,7 +303,21 @@ def compile_file(input_path: str, output_path: Optional[str] = None, header_only
     if header_only:
         return compile_header(source, output_path)
     
-    return compile_text(source, output_path, base_path=input_file.parent)
+    cpp_code = compile_text(source, output_path, base_path=input_file.parent, build=build)
+    
+    if build:
+        binary_path = str(Path(output_path).with_suffix(''))
+        import subprocess
+        result = subprocess.run(
+            ['g++', '-std=c++17', '-I', str(output_dir), output_path, '-o', binary_path],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"Ошибка компиляции:\n{result.stderr}")
+        else:
+            print(f'✓ Собран бинарник: {binary_path}')
+    
+    return cpp_code
 
 
 def compile_header(source: str, output_path: str) -> str:
@@ -338,15 +341,19 @@ def compile_header(source: str, output_path: str) -> str:
 if __name__ == '__main__':
     import sys
     
-    if len(sys.argv) < 2:
-        print("Использование: python -m gamescript.compiler <файл.gs> [выход]")
+    header_only = '--header' in sys.argv
+    build = '--build' in sys.argv
+    args = [a for a in sys.argv[1:] if a not in ('--header', '--build')]
+    
+    if len(args) < 1:
+        print("Использование: python -m gamescript.compiler <файл.gs> [выход] [--header] [--build]")
         sys.exit(1)
     
-    input_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+    input_file = args[0]
+    output_file = args[1] if len(args) > 1 else None
     
     try:
-        cpp = compile_file(input_file, output_file)
+        cpp = compile_file(input_file, output_file, header_only=header_only, build=build)
         if not output_file:
             print(cpp)
     except (SyntaxError, ValueError, ParseError) as e:

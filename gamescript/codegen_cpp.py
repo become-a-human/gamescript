@@ -107,6 +107,23 @@ class CppCodeGen:
                 self._generate_class_def(stmt)
             # Импорты обрабатываются отдельно через add_load/add_grab/add_link
         return self._assemble()
+    
+    def generate_main(self, ast: Program) -> str:
+        """Генерирует main() на основе AST."""
+        # Ищем главный класс (наследник System)
+        game_class = 'Game'
+        for stmt in ast.statements:
+            if isinstance(stmt, ClassDef) and stmt.parent == 'System':
+                game_class = stmt.name
+                break
+        
+        return f'''
+int main() {{
+    {game_class} game;
+    game.on_start();
+    return 0;
+}}
+'''
 
     # ===== Сборка =====
 

@@ -43,3 +43,8 @@ clean:
 	rm -rf examples/generated/
 	rm -rf *.egg-info
 	@echo "✓ Очищено"
+
+# Байткод
+build:
+	@mkdir -p examples/generated
+	python -m gamescript.compiler examples/mainfile.gs examples/generated/mainfile.cpp --build
