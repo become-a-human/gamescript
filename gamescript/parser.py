@@ -95,6 +95,10 @@ class Parser:
         elif t.type == TokenType.PASS:
             self.advance()
             return None
+        elif t.type == TokenType.PRINT:
+            return self._parse_print()
+        elif t.type == TokenType.ASSERT:
+            return self._parse_assert()
         else:
             return self._parse_expression()
 
@@ -107,6 +111,9 @@ class Parser:
         full_name = '.'.join(parts)
         t = self.peek()
         
+        if t.type in (TokenType.PLUS_PLUS, TokenType.MINUS_MINUS):
+            op = self.advance().value
+            return CompoundAssignment(full_name, op, NumberLiteral(1))
         if t.type == TokenType.COLON:
             self.advance()
             method = self.expect(TokenType.IDENT).value
@@ -143,7 +150,11 @@ class Parser:
             self.pos -= 1
             self.advance()
         filename = self.expect(TokenType.STRING).value
-        return LoadStmt(filename, optional)
+        alias = None
+        if self.peek().type == TokenType.LIKE:
+            self.advance()
+            alias = self.expect(TokenType.STRING).value
+        return LoadStmt(filename, alias, optional)
 
     def _parse_value(self) -> ASTNode:
         t = self.peek()
@@ -202,9 +213,13 @@ class Parser:
     def _parse_class(self) -> ClassDef:
         self.expect(TokenType.CLASS)
         name = self.expect(TokenType.IDENT).value
-        self.expect(TokenType.LPAREN)
-        parent = self.expect(TokenType.IDENT).value
-        self.expect(TokenType.RPAREN)
+        
+        parent = None
+        if self.peek().type == TokenType.LPAREN:
+            self.advance()
+            parent = self.expect(TokenType.IDENT).value
+            self.expect(TokenType.RPAREN)
+        
         self.expect(TokenType.COLON)
         doc = None
         if self.peek().type == TokenType.STRING:
@@ -247,24 +262,34 @@ class Parser:
 
     def _parse_block(self) -> List[ASTNode]:
         body = []
-        stop_tokens = {TokenType.EOF, TokenType.CLASS, TokenType.DEF, TokenType.ELSE,
-                       TokenType.AT_LOAD, TokenType.AT_LOAD_OPT}
+        stop_tokens = {
+            TokenType.EOF, TokenType.CLASS, TokenType.DEF, TokenType.ELSE,
+            TokenType.ELIF,
+            TokenType.AT_LOAD, TokenType.AT_LOAD_OPT,
+        }
         while self.peek().type not in stop_tokens:
             stmt = self._parse_statement()
             if stmt is not None:
                 body.append(stmt)
         return body
-
-    def _parse_if(self) -> IfStmt:
-        self.expect(TokenType.IF)
+    
+    def _parse_if(self, is_elif: bool = False) -> IfStmt:
+        if not is_elif:
+            self.expect(TokenType.IF)
+        
         condition = self._parse_expression()
         self.expect(TokenType.COLON)
         body = self._parse_block()
+        
         else_body = None
-        if self.peek().type == TokenType.ELSE:
+        if self.peek().type == TokenType.ELIF:
+            self.advance()
+            else_body = [self._parse_if(is_elif=True)]
+        elif self.peek().type == TokenType.ELSE:
             self.advance()
             self.expect(TokenType.COLON)
             else_body = self._parse_block()
+        
         return IfStmt(condition, body, else_body)
 
     def _parse_while(self) -> WhileStmt:
@@ -290,8 +315,31 @@ class Parser:
             return ReturnStmt(self._parse_expression())
         return ReturnStmt(None)
 
+    def _parse_print(self) -> PrintStmt:
+        self.expect(TokenType.PRINT)
+        self.expect(TokenType.LPAREN)
+        value = self._parse_expression()
+        self.expect(TokenType.RPAREN)
+        return PrintStmt(value)
+
+    def _parse_assert(self) -> AssertStmt:
+        self.expect(TokenType.ASSERT)
+        condition = self._parse_expression()
+        return AssertStmt(condition)
+
     def _parse_expression(self) -> ASTNode:
-        return self._parse_comparison()
+        return self._parse_logic()
+
+    def _parse_list(self) -> ListLiteral:
+        self.expect(TokenType.LBRACKET)
+        elements = []
+        if self.peek().type != TokenType.RBRACKET:
+            elements.append(self._parse_expression())
+            while self.peek().type == TokenType.COMMA:
+                self.advance()
+                elements.append(self._parse_expression())
+        self.expect(TokenType.RBRACKET)
+        return ListLiteral(elements)
 
     def _parse_comparison(self) -> ASTNode:
         left = self._parse_addition()
@@ -300,6 +348,14 @@ class Parser:
                                     TokenType.LESS_EQUALS, TokenType.GREATER_EQUALS):
             op = self.advance().value
             right = self._parse_addition()
+            left = BinaryOp(op, left, right)
+        return left
+
+    def _parse_logic(self) -> ASTNode:
+        left = self._parse_comparison()
+        while self.peek().type in (TokenType.AND, TokenType.OR):
+            op = self.advance().value
+            right = self._parse_comparison()
             left = BinaryOp(op, left, right)
         return left
 
@@ -350,5 +406,13 @@ class Parser:
         elif t.type in (TokenType.INT, TokenType.FLOAT, TokenType.STR,
                         TokenType.BOOL, TokenType.LIST, TokenType.DICT):
             return self._parse_type_call()
+        elif t.type == TokenType.NOT:
+            self.advance()
+            return UnaryOp('!', self._parse_primary())
+        elif t.type == TokenType.LBRACKET:
+            return self._parse_list()
+        elif t.type == TokenType.NONE:
+            self.advance()
+            return NoneLiteral()
         else:
             raise ParseError(f"Неожиданный токен в выражении: {t.type.value}", t.line, t.col)

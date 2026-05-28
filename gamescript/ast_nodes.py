@@ -5,18 +5,15 @@
 from dataclasses import dataclass, field
 from typing import List, Optional, Any
 
-
 @dataclass
 class ASTNode:
     """Базовый класс для всех узлов AST."""
     pass
 
-
 @dataclass
 class Program(ASTNode):
     """Корень программы."""
     statements: List[ASTNode] = field(default_factory=list)
-
 
 # ===== Импорты =====
 
@@ -24,8 +21,8 @@ class Program(ASTNode):
 class LoadStmt(ASTNode):
     """@load "filename" или @load? "filename" """
     filename: str
+    alias: Optional[str] = None    # like "Alias"
     optional: bool = False
-
 
 # ===== Значения =====
 
@@ -45,7 +42,6 @@ class BoolLiteral(ASTNode):
 class NoneLiteral(ASTNode):
     pass
 
-
 # ===== Словари =====
 
 @dataclass
@@ -57,13 +53,12 @@ class DictDef(ASTNode):
     name: str
     value: ASTNode
 
-
 # ===== Классы и методы =====
 
 @dataclass
 class ClassDef(ASTNode):
     name: str
-    parent: str
+    parent: Optional[str] = None
     doc: Optional[str] = None
     methods: List['MethodDef'] = field(default_factory=list)
 
@@ -72,7 +67,6 @@ class MethodDef(ASTNode):
     name: str
     params: List[tuple] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
-
 
 # ===== Выражения =====
 
@@ -92,6 +86,11 @@ class BinaryOp(ASTNode):
     right: ASTNode
 
 @dataclass
+class UnaryOp(ASTNode):
+    op: str
+    expr: ASTNode
+
+@dataclass
 class FieldAccess(ASTNode):
     obj: ASTNode
     field: str
@@ -106,7 +105,6 @@ class MethodCall(ASTNode):
 class FunCall(ASTNode):
     name: str
     args: List[ASTNode] = field(default_factory=list)
-
 
 # ===== Инструкции =====
 
@@ -149,3 +147,15 @@ class ContinueStmt(ASTNode):
 @dataclass
 class BreakStmt(ASTNode):
     pass
+
+@dataclass
+class PrintStmt(ASTNode):
+    value: ASTNode
+
+@dataclass
+class AssertStmt(ASTNode):
+    condition: ASTNode
+
+@dataclass
+class ListLiteral(ASTNode):
+    elements: List[ASTNode] = field(default_factory=list)

@@ -1,3 +1,5 @@
+@load "entity"
+@load "system"
 @load "sdl2"
 @load "sdl2_image"
 @load "hero"

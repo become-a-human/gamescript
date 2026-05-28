@@ -21,15 +21,22 @@ class Lexer:
         'return': TokenType.RETURN,
         'continue': TokenType.CONTINUE,
         'break': TokenType.BREAK,
+        'like': TokenType.LIKE,
         'int': TokenType.INT,
         'float': TokenType.FLOAT,
         'str': TokenType.STR,
         'bool': TokenType.BOOL,
         'list': TokenType.LIST,
+        'print': TokenType.PRINT,
+        'assert': TokenType.ASSERT,
         'dict': TokenType.DICT,
         'None': TokenType.NONE,
         'true': TokenType.TRUE,
         'false': TokenType.FALSE,
+        'and': TokenType.AND,
+        'or': TokenType.OR,
+        'not': TokenType.NOT,
+        'elif': TokenType.ELIF,
     }
 
     def __init__(self, source: str):
@@ -150,6 +157,10 @@ class Lexer:
                 self.tokens.append(Token(TokenType.LPAREN, '(', self.line, self.col)); self.advance()
             elif c == ')':
                 self.tokens.append(Token(TokenType.RPAREN, ')', self.line, self.col)); self.advance()
+            elif c == '[':
+                self.tokens.append(Token(TokenType.LBRACKET, '[', self.line, self.col)); self.advance()
+            elif c == ']':
+                self.tokens.append(Token(TokenType.RBRACKET, ']', self.line, self.col)); self.advance()
             elif c == '<':
                 self.advance()
                 if self.current() == '=':
@@ -189,6 +200,9 @@ class Lexer:
                 if self.current() == '=':
                     self.advance()
                     self.tokens.append(Token(TokenType.PLUS_EQUALS, '+=', self.line, self.col))
+                elif self.current() == '+':
+                    self.advance()
+                    self.tokens.append(Token(TokenType.PLUS_PLUS, '++', self.line, self.col))
                 else:
                     self.tokens.append(Token(TokenType.PLUS, '+', self.line, self.col))
             elif c == '-':
@@ -196,6 +210,9 @@ class Lexer:
                 if self.current() == '=':
                     self.advance()
                     self.tokens.append(Token(TokenType.MINUS_EQUALS, '-=', self.line, self.col))
+                elif self.current() == '-':
+                    self.advance()
+                    self.tokens.append(Token(TokenType.MINUS_MINUS, '--', self.line, self.col))
                 else:
                     self.tokens.append(Token(TokenType.MINUS, '-', self.line, self.col))
             elif c == '*':

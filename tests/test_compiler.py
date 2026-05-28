@@ -90,6 +90,56 @@ def test_compile_full_game_example():
         assert "struct GAME_CONFIG_t" in cpp and "HERO_t" not in cpp and "SWORD_t" not in cpp
 
 
+def test_compile_load_like():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "hero.gs").write_text('HERO = { "hp": 100 }', encoding='utf-8')
+        cpp = compile_text('@load "hero" like "Player"', base_path=base)
+        assert '#include "hero.h"' in cpp
+        assert "using Player = hero;" in cpp
+
+
+def test_compile_load_like_star():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "hero.gs").write_text('HERO = { "hp": 100 }', encoding='utf-8')
+        cpp = compile_text('@load "hero" like "*"', base_path=base)
+        assert '#include "hero.h"' in cpp
+        assert "using namespace hero;" in cpp
+
+
+def test_compile_not():
+    cpp = compile_text('class Hero(Entity):\n    def check(self):\n        if not self.is_alive:\n            self.hp = 0')
+    assert '!this->is_alive' in cpp
+
+
+def test_compile_elif():
+    cpp = compile_text('''class Hero(Entity):
+    def check(self):
+        if self.hp > 50:
+            self.status = "good"
+        elif self.hp > 20:
+            self.status = "ok"
+        else:
+            self.status = "bad"''')
+    assert 'else {' in cpp
+    assert 'if (' in cpp
+
+
+def test_compile_list_literal():
+    cpp = compile_text('class Hero(Entity):\n    def init(self):\n        self.items = [1, 2, 3]')
+    assert '{1, 2, 3}' in cpp
+
+
+def test_compile_increment():
+    cpp = compile_text('class Hero(Entity):\n    def tick(self):\n        self.hp++')
+    assert 'this->hp++;' in cpp
+
+def test_compile_decrement():
+    cpp = compile_text('class Hero(Entity):\n    def tick(self):\n        self.hp--')
+    assert 'this->hp--;' in cpp
+
+
 if __name__ == "__main__":
     test_simple_compile(); test_compile_with_load()
     test_compile_with_optional_missing(); test_compile_with_optional_present()
@@ -98,4 +148,7 @@ if __name__ == "__main__":
     test_compile_method_call(); test_compile_while(); test_compile_for()
     test_compile_typed_parameters(); test_compile_header()
     test_compile_full_game_example()
+    test_compile_load_like(); test_compile_load_like_star()
+    test_compile_not(); test_compile_elif(); test_compile_list_literal()
+    test_compile_increment(); test_compile_decrement()
     print("✓ Все тесты компилятора пройдены!")

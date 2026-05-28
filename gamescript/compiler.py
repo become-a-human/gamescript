@@ -15,10 +15,30 @@ from .ast_nodes import Program, DictDef, ClassDef, LoadStmt, ASTNode, Assignment
 ALLOWED_EXTENSIONS = {'.gs', '.gscript'}
 
 
-def generate_runtime(ast: Program, output_dir: Path):
-    """Генерирует runtime.h на основе AST."""
-    gen = CppCodeGen()
-    runtime_h = gen.generate_runtime(ast)
+def generate_runtime(ast: Program, output_dir: Path, base_path: Path):
+    """Генерирует runtime.h на основе entity.gs и system.gs."""
+    all_fields = {}
+    all_bases = set()
+    
+    # Ищем entity.gs и system.gs
+    for gs_file in ['entity.gs', 'system.gs']:
+        filepath = _find_file(gs_file, base_path)
+        if filepath:
+            source = filepath.read_text(encoding='utf-8')
+            lexer = Lexer(source); tokens = lexer.tokenize()
+            parser = Parser(tokens); dep_ast = parser.parse()
+            for stmt in dep_ast.statements:
+                if isinstance(stmt, ClassDef):
+                    all_bases.add(stmt.name)
+                    for method in stmt.methods:
+                        for s in method.body:
+                            if isinstance(s, Assignment) and s.name.startswith('self.'):
+                                field = s.name.replace('self.', '')
+                                if field not in all_fields:
+                                    all_fields[field] = _infer_cpp_type(s.value)
+    
+    gen_runtime = CppCodeGen()
+    runtime_h = gen_runtime.generate_runtime_from_data(all_bases, all_fields)
     (output_dir / 'runtime.h').write_text(runtime_h, encoding='utf-8')
 
 
@@ -140,7 +160,14 @@ def compile_header(source: str, output_path: str) -> str:
     lexer = Lexer(source); tokens = lexer.tokenize()
     parser = Parser(tokens); ast = parser.parse()
     gen = CppCodeGen()
+    
+    # Обрабатываем @load
+    for stmt in ast.statements:
+        if isinstance(stmt, LoadStmt):
+            gen.add_load(stmt)
+    
     cpp_code = gen.generate_header(ast)
+    
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(cpp_code, encoding='utf-8')
     print(f'✓ Сгенерирован {output_path}')

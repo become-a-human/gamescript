@@ -167,6 +167,74 @@ def test_continue_break():
     assert isinstance(Parser(tokenize(s2)).parse().statements[0].methods[0].body[0].body[0], ContinueStmt)
 
 
+def test_load_like():
+    source = '@load "hero" like "Player"'
+    ast = Parser(tokenize(source)).parse()
+    stmt = ast.statements[0]
+    assert isinstance(stmt, LoadStmt)
+    assert stmt.filename == "hero"
+    assert stmt.alias == "Player"
+
+
+def test_load_like_star():
+    source = '@load "hero" like "*"'
+    ast = Parser(tokenize(source)).parse()
+    stmt = ast.statements[0]
+    assert stmt.alias == "*"
+
+
+def test_not_operator():
+    source = '''class Hero(Entity):
+    def check(self):
+        if not self.is_alive:
+            self.hp = 0'''
+    ast = Parser(tokenize(source)).parse()
+    method = ast.statements[0].methods[0]
+    assert isinstance(method.body[0], IfStmt)
+    assert isinstance(method.body[0].condition, UnaryOp)
+    assert method.body[0].condition.op == '!'
+
+
+def test_elif_statement():
+    source = '''class Hero(Entity):
+    def check(self):
+        if self.hp > 50:
+            self.status = "good"
+        elif self.hp > 20:
+            self.status = "ok"
+        else:
+            self.status = "bad"'''
+    ast = Parser(tokenize(source)).parse()
+    method = ast.statements[0].methods[0]
+    if_stmt = method.body[0]
+    assert isinstance(if_stmt, IfStmt)
+    assert if_stmt.else_body is not None
+
+
+def test_list_literal():
+    source = 'self.items = [1, 2, 3]'
+    ast = Parser(tokenize(source)).parse()
+    stmt = ast.statements[0]
+    assert isinstance(stmt, Assignment)
+    assert isinstance(stmt.value, ListLiteral)
+    assert len(stmt.value.elements) == 3
+
+
+def test_increment():
+    source = 'self.hp++'
+    ast = Parser(tokenize(source)).parse()
+    stmt = ast.statements[0]
+    assert isinstance(stmt, CompoundAssignment)
+    assert stmt.op == '++'
+
+def test_decrement():
+    source = 'self.hp--'
+    ast = Parser(tokenize(source)).parse()
+    stmt = ast.statements[0]
+    assert isinstance(stmt, CompoundAssignment)
+    assert stmt.op == '--'
+
+
 if __name__ == "__main__":
     test_dict_def(); test_multiple_dicts(); test_nested_dict(); test_list()
     test_class_def(); test_class_with_method(); test_class_with_multiple_methods()
@@ -177,4 +245,7 @@ if __name__ == "__main__":
     test_if_statement(); test_if_else_statement(); test_if_with_greater_equal()
     test_while_statement(); test_for_statement(); test_return_statement()
     test_continue_break()
+    test_load_like(); test_load_like_star()
+    test_not_operator(); test_elif_statement(); test_list_literal()
+    test_increment(); test_decrement()
     print("✓ Все тесты парсера пройдены!")

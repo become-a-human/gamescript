@@ -1,4 +1,5 @@
 # --header
+@load "joystick"
 # ===== ГЕРОЙ =====
 HERO = {
     "name": "Артур",
@@ -49,3 +50,14 @@ class Hero(Entity):
     def use_all(self, items):
         for i in items:
             self:use(i)
+
+    def play_idle(self):
+        self:set_animation("idle", 4, 10)
+    
+    def play_walk(self):
+        self:set_animation("walk", 6, 8)
+
+    def move_with_joystick(self, joystick: Joystick):
+        if joystick.active:
+            self.x = self.x + joystick.direction_x * self.speed
+            self.y = self.y + joystick.direction_y * self.speed

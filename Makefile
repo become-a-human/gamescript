@@ -32,6 +32,9 @@ test-compiler:
 # Компиляция примеров (только .h и .cpp, без сборки)
 compile:
 	@mkdir -p examples/generated
+	python -m gamescript.compiler examples/entity.gs examples/generated/entity.h
+	python -m gamescript.compiler examples/system.gs examples/generated/system.h
+	python -m gamescript.compiler examples/joystick.gs examples/generated/joystick.h
 	python -m gamescript.compiler examples/hero.gs examples/generated/hero.h
 	python -m gamescript.compiler examples/weapons.gs examples/generated/weapons.h
 	python -m gamescript.compiler examples/enemies.gs examples/generated/enemies.h
@@ -43,14 +46,14 @@ compile:
 # Полная сборка (скомпилировать + скомпоновать в бинарник)
 build:
 	@mkdir -p examples/generated
-	# 1. Генерируем runtime.h и все заголовки
+	python -m gamescript.compiler examples/entity.gs examples/generated/entity.h
+	python -m gamescript.compiler examples/system.gs examples/generated/system.h
 	python -m gamescript.compiler examples/hero.gs examples/generated/hero.h
 	python -m gamescript.compiler examples/weapons.gs examples/generated/weapons.h
 	python -m gamescript.compiler examples/enemies.gs examples/generated/enemies.h
 	python -m gamescript.compiler examples/inventory.gs examples/generated/inventory.h
 	python -m gamescript.compiler examples/equipment.gs examples/generated/equipment.h
-	# 2. Главный файл с --build (сгенерирует runtime.h заново с учётом всех зависимостей)
-	python -m gamescript.compiler examples/mainfile.gs examples/generated/mainfile.cpp --build
+	python -m gamescript.compiler examples/__main__.gs examples/generated/mainfile.cpp --build
 
 # Очистка
 clean:

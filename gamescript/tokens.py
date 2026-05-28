@@ -22,6 +22,8 @@ class TokenType(Enum):
     RBRACE = "}"               # }
     LPAREN = "("               # (
     RPAREN = ")"               # )
+    LBRACKET = "["             # [
+    RBRACKET = "]"             # ]
     
     # Разделители
     COLON = ":"                # :
@@ -49,6 +51,8 @@ class TokenType(Enum):
     MINUS = "-"                # -
     STAR = "*"                 # *
     SLASH = "/"                # /
+    PLUS_PLUS = "++"           # ++
+    MINUS_MINUS = "--"         # --
     
     # Ключевые слова
     CLASS = "CLASS"            # class
@@ -62,6 +66,9 @@ class TokenType(Enum):
     RETURN = "RETURN"          # return
     CONTINUE = "CONTINUE"      # continue
     BREAK = "BREAK"            # break
+    LIKE = "LIKE"              # like
+    PRINT = "PRINT"            # print
+    ASSERT = "ASSERT"          # assert
     
     # Импорты
     AT_LOAD = "@load"          # @load "file"
@@ -74,6 +81,11 @@ class TokenType(Enum):
     BOOL = "BOOL"              # bool()
     LIST = "LIST"              # list()
     DICT = "DICT"              # dict()
+    AND = "AND"                # and
+    OR = "OR"                  # or
+    NOT = "NOT"                # not
+    ELIF = "ELIF"              # elif
+    
     
     # Константы
     NONE = "NONE"              # None

@@ -40,12 +40,13 @@ def test_docstring_single_quotes():
 
 
 def test_keywords():
-    lexer = Lexer("class def pass if else while for in return continue break true false None")
+    lexer = Lexer("class def pass if else while for in return continue break true false None not and or print assert")
     tokens = lexer.tokenize()
     types = [t.type for t in tokens if t.type != TokenType.EOF]
     assert types == [TokenType.CLASS, TokenType.DEF, TokenType.PASS, TokenType.IF, TokenType.ELSE,
                      TokenType.WHILE, TokenType.FOR, TokenType.IN, TokenType.RETURN,
-                     TokenType.CONTINUE, TokenType.BREAK, TokenType.TRUE, TokenType.FALSE, TokenType.NONE]
+                     TokenType.CONTINUE, TokenType.BREAK, TokenType.TRUE, TokenType.FALSE, TokenType.NONE,
+                     TokenType.NOT, TokenType.AND, TokenType.OR, TokenType.PRINT, TokenType.ASSERT]
 
 
 def test_type_constructors():
@@ -94,10 +95,17 @@ def test_dict_syntax():
     assert TokenType.IDENT in types and TokenType.LBRACE in types and TokenType.RBRACE in types
 
 
+def test_brackets():
+    lexer = Lexer("[ ]")
+    types = [t.type for t in lexer.tokenize() if t.type != TokenType.EOF]
+    assert types == [TokenType.LBRACKET, TokenType.RBRACKET]
+
+
 if __name__ == "__main__":
     test_empty(); test_numbers(); test_strings()
     test_docstring(); test_docstring_single_quotes()
     test_keywords(); test_type_constructors(); test_operators()
     test_comparison_operators(); test_compound_assignment_tokens()
     test_comment(); test_imports_load(); test_dict_syntax()
+    test_brackets()
     print("✓ Все тесты лексера пройдены!")
