@@ -22,8 +22,6 @@ class TokenType(Enum):
     RBRACE = "}"               # }
     LPAREN = "("               # (
     RPAREN = ")"               # )
-    LANGLE = "<"               # < (для ~grab <Name>)
-    RANGLE = ">"               # > (для ~grab <Name>)
     
     # Разделители
     COLON = ":"                # :
@@ -64,15 +62,10 @@ class TokenType(Enum):
     RETURN = "RETURN"          # return
     CONTINUE = "CONTINUE"      # continue
     BREAK = "BREAK"            # break
-    LIKE = "LIKE"              # like (для переименования)
     
     # Импорты
     AT_LOAD = "@load"          # @load "file"
     AT_LOAD_OPT = "@load?"     # @load? "file" (опциональный)
-    TILDE_GRAB = "~grab"       # ~grab <Name>
-    TILDE_GRAB_OPT = "~grab?"  # ~grab? <Name> (опциональный)
-    AMP_LINK = "&link"         # &link <func>
-    AMP_LINK_OPT = "&link?"    # &link? <func> (опциональный)
     
     # Встроенные типы
     INT = "INT"                # int()
@@ -94,15 +87,7 @@ class TokenType(Enum):
 
 @dataclass
 class Token:
-    """
-    Один токен после лексинга.
-    
-    Атрибуты:
-        type:  тип токена (TokenType)
-        value: значение (строка, число, оператор)
-        line:  номер строки в исходнике
-        col:   номер колонки в исходнике
-    """
+    """Один токен после лексинга."""
     type: TokenType
     value: Any
     line: int

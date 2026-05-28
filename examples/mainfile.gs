@@ -5,8 +5,6 @@
 @load "enemies"
 @load "inventory"
 @load "equipment"
-~grab <Hero> like <MainHero>
-&link <on_create> like <init>
 
 GAME_CONFIG = {
     "title": "Hero's Quest",
