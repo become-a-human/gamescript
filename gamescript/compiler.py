@@ -105,40 +105,7 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
     output_dir.mkdir(parents=True, exist_ok=True)
     
     if header_only:
-        return compile_header(source, output_path)
-    
-    # Генерируем runtime.h ДО компиляции главного файла
-    all_fields = {}
-    all_bases = set()
-    lexer = Lexer(source); tokens = lexer.tokenize()
-    parser = Parser(tokens); ast = parser.parse()
-    for stmt in ast.statements:
-        if isinstance(stmt, ClassDef):
-            all_bases.add(stmt.parent)
-            for method in stmt.methods:
-                for s in method.body:
-                    if isinstance(s, Assignment) and s.name.startswith('self.'):
-                        field = s.name.replace('self.', '')
-                        if field not in all_fields:
-                            all_fields[field] = _infer_cpp_type(s.value)
-        elif isinstance(stmt, LoadStmt):
-            dep_path = _find_file(stmt.filename, input_file.parent)
-            if dep_path:
-                dep_source = dep_path.read_text(encoding='utf-8')
-                dep_lexer = Lexer(dep_source); dep_tokens = dep_lexer.tokenize()
-                dep_parser = Parser(dep_tokens); dep_ast = dep_parser.parse()
-                for ds in dep_ast.statements:
-                    if isinstance(ds, ClassDef):
-                        all_bases.add(ds.parent)
-                        for method in ds.methods:
-                            for s in method.body:
-                                if isinstance(s, Assignment) and s.name.startswith('self.'):
-                                    field = s.name.replace('self.', '')
-                                    if field not in all_fields:
-                                        all_fields[field] = _infer_cpp_type(s.value)
-    gen_runtime = CppCodeGen(base_path=input_file.parent)
-    runtime_h = gen_runtime.generate_runtime_from_data(all_bases, all_fields)
-    (output_dir / 'runtime.h').write_text(runtime_h, encoding='utf-8')
+        return compile_header(source, output_path, base_path=input_file.parent)
     
     cpp_code = compile_text(source, output_path, base_path=input_file.parent, build=build)
     
@@ -156,18 +123,21 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
     return cpp_code
 
 
-def compile_header(source: str, output_path: str) -> str:
+def compile_header(source: str, output_path: str, base_path: Path = None) -> str:
     lexer = Lexer(source); tokens = lexer.tokenize()
     parser = Parser(tokens); ast = parser.parse()
     gen = CppCodeGen()
     
-    # Обрабатываем @load
     for stmt in ast.statements:
         if isinstance(stmt, LoadStmt):
+            stem = stmt.filename.rsplit('.', 1)[0].split('/')[-1]
+            if stem not in BUILTIN_LIBS:
+                filepath = _find_file(stmt.filename, base_path or Path.cwd())
+                if filepath is None:
+                    raise ParseError(f"@load: файл не найден: {stmt.filename}", 0, 0)
             gen.add_load(stmt)
     
     cpp_code = gen.generate_header(ast)
-    
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(cpp_code, encoding='utf-8')
     print(f'✓ Сгенерирован {output_path}')
@@ -233,4 +203,4 @@ def main():
 
 
 if __name__ == "__main__":
-	main()
+    main()

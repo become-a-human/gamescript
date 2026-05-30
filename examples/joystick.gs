@@ -1,6 +1,5 @@
 # --header
 @load "system"
-# Виртуальный джойстик для мобильных игр
 
 JOYSTICK_CONFIG = {
     "deadzone": 20,

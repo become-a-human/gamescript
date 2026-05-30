@@ -165,10 +165,11 @@ class CppCodeGen:
         
         return '\n'.join(lines) + '\n'
 
-    def _assemble(self) -> str:
+    def _assemble(self, is_header: bool = True) -> str:
         parts = []
-        parts.append('#pragma once')
-        parts.append('')
+        if is_header:
+            parts.append('#pragma once')
+            parts.append('')
         for inc in self.includes:
             parts.append(inc)
         if self.includes:

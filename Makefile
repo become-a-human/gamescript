@@ -37,12 +37,7 @@ compile:
 	python -m gamescript.compiler examples/system.gs examples/generated/system.h
 	python -m gamescript.compiler examples/joystick.gs examples/generated/joystick.h
 	python -m gamescript.compiler examples/hero.gs examples/generated/hero.h
-	python -m gamescript.compiler examples/weapons.gs examples/generated/weapons.h
-	python -m gamescript.compiler examples/enemies.gs examples/generated/enemies.h
-	python -m gamescript.compiler examples/inventory.gs examples/generated/inventory.h
-	python -m gamescript.compiler examples/equipment.gs examples/generated/equipment.h
 	python -m gamescript.compiler examples/__main__.gs examples/generated/__main__.cpp
-	@echo "✓ Все примеры скомпилированы в examples/generated/"
 
 # Полная сборка (скомпоновать в бинарник)
 build:

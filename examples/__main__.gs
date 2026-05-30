@@ -3,10 +3,6 @@
 @load "entity"
 @load "system"
 @load "hero"
-@load "weapons"
-@load "enemies"
-@load "inventory"
-@load "equipment"
 
 class Main(System):
     """Точка входа — генерирует int main()"""
