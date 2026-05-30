@@ -1,12 +1,13 @@
 <h1>GameScript</h1>
 
-<a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/github/license/become-a-human/gamescript"/></a> <a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/badge/version-0.4.1-orange"/></a> <img src="https://img.shields.io/badge/python-3.9+-blue"/> <img src="https://img.shields.io/badge/output-C++-00599C"/>
+<a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/github/license/become-a-human/gamescript"/></a>
+<a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/badge/version-0.4.1-orange"/></a>
+<img src="https://img.shields.io/badge/python-3.9+-blue"/>
+<img src="https://img.shields.io/badge/output-C++-00599C"/>
 
 <p>DSL для геймдева, компилируется в C++. Пиши как на Python, работает как C++.</p>
 
-<blockquote>
-⚠️ <strong>Ранняя версия (v0.4.1).</strong> Активная разработка.
-</blockquote>
+<blockquote>⚠️ <strong>v0.4.1</strong> — активная разработка.</blockquote>
 
 <h2>Быстрый старт</h2>
 <pre><code>pip install -e .
@@ -14,7 +15,8 @@ gamescript --version</code></pre>
 
 <h2>Пример</h2>
 <h3>hero.gs</h3>
-<pre><code># --header
+<pre><code class="python">
+# --header
 @load "entity"
 
 HERO = { "name": "Артур", "hp": 100 }
@@ -23,14 +25,15 @@ class Hero(Entity):
     def on_create(self):
         self.hp = HERO.hp
         self:set_animation("idle", 4, 10)
-    
+
     def take_damage(self, amount: int):
         self.hp = self.hp - amount
         if self.hp <= 0:
             self.is_alive = false</code></pre>
-
-<h3>Сгенерированный hero.h</h3>
-<pre><code>#pragma once
+</code></pre>
+<h3>hero.h (сгенерированный)</h3>
+<pre><code class="cpp">
+#pragma once
 #include "entity.h"
 
 struct HERO_t { std::string name; int hp; };
@@ -57,10 +60,32 @@ public:
     <li><code>--version</code></li>
 </ul>
 
+<h2>Структура проекта</h2>
+<pre><code>gamescript/
+├── gamescript/          # компилятор
+│   ├── tokens.py
+│   ├── lexer.py
+│   ├── ast_nodes.py
+│   ├── parser.py
+│   ├── codegen_cpp.py
+│   └── compiler.py
+├── examples/            # примеры
+│   ├── entity.gs        # базовый класс
+│   ├── system.gs        # базовый класс
+│   ├── joystick.gs      # джойстик
+│   ├── hero.gs          # герой
+│   └── __main__.gs      # точка входа
+├── tests/
+├── Makefile
+├── setup.py
+├── CHANGELOG.md
+├── LICENSE
+└── README.md</code></pre>
+
 <h2>Использование</h2>
-<pre><code>gamescript hero.gs                  # в консоль
-gamescript hero.gs hero.h           # заголовок
-gamescript __main__.gs --build -o game  # бинарник
+<pre><code>gamescript hero.gs                     # в консоль
+gamescript hero.gs hero.h              # заголовок
+gamescript __main__.gs --build -o game # бинарник
 
 from gamescript import compile_file, compile_text
 cpp = compile_text('HERO = { "hp": 100 }')

@@ -96,6 +96,9 @@ class TokenType(Enum):
     COMMENT = "COMMENT"        # комментарий (пропускается)
     EOF = "EOF"                # конец файла
 
+    INDENT = "INDENT"          # indent
+    DEDENT = "DEDENT"          # dedent
+    NEWLINE = "NEWLINE"        # newline
 
 @dataclass
 class Token:

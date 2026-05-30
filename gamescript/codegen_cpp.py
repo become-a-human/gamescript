@@ -16,7 +16,6 @@ BUILTIN_LIBS = {
     'json': '<nlohmann/json.hpp>',
     're': '<regex>',
     'collections': '<map>',
-    'runtime': '"runtime.h"',
     'sdl2': '<SDL2/SDL.h>',
     'sdl2_image': '<SDL2/SDL_image.h>',
 }
@@ -35,35 +34,6 @@ class CppCodeGen:
         self._used_std: set = set()
         self._field_types: dict = {}  # имя_класса -> {имя_поля: тип}
         self._warnings: List[str] = []
-    
-    def _register_field(self, class_name: str, field_name: str, field_type: str):
-        """Регистрирует поле класса для проверки типов."""
-        if class_name not in self._field_types:
-            self._field_types[class_name] = {}
-        self._field_types[class_name][field_name] = field_type
-    
-    def _check_type(self, class_name: str, field_name: str, value, stmt) -> str:
-        """Проверяет соответствие типа. Возвращает C++ значение."""
-        if class_name in self._field_types and field_name in self._field_types[class_name]:
-            expected = self._field_types[class_name][field_name]
-            actual = self._infer_type(value)
-            
-            type_compat = {
-                'int': {'int', 'float'},     # int можно присвоить float
-                'float': {'int', 'float'},   # float можно присвоить int
-                'str': {'str'},              # str только str
-                'bool': {'bool', 'int'},     # bool можно присвоить int
-            }
-            
-            if actual in type_compat.get(expected, set()):
-                if actual != expected:
-                    self._warnings.append(f"⚠ {class_name}.{field_name}: {expected} ← {actual} (автоприведение)")
-                return self._expr_to_cpp(value)
-            else:
-                self._warnings.append(f"⚠ {class_name}.{field_name}: ожидался {expected}, получен {actual}")
-                return self._expr_to_cpp(value)  # всё равно компилируем
-        
-        return self._expr_to_cpp(value)
 
     def add_load(self, stmt: LoadStmt):
         stem = stmt.filename.rsplit('.', 1)[0].split('/')[-1]
@@ -136,34 +106,6 @@ class CppCodeGen:
 {body}
     return 0;
 }}'''
-    
-    def generate_runtime_from_data(self, bases: set, fields: dict) -> str:
-        lines = ['#pragma once']
-        if any(ftype == 'str' for ftype in fields.values()):
-            lines.append('#include <string>')
-        
-        if 'Entity' in bases:
-            lines.append('')
-            lines.append('class Entity {')
-            lines.append('public:')
-            for field, ftype in fields.items():
-                cpp_type = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool'}.get(ftype, 'int')
-                lines.append(f'    {cpp_type} {field};')
-            lines.append('    virtual ~Entity() = default;')
-            lines.append('    virtual void on_create() {}')
-            lines.append('    virtual void on_turn(Entity& target) {}')
-            lines.append('};')
-        
-        if 'System' in bases:
-            lines.append('')
-            lines.append('class System {')
-            lines.append('public:')
-            lines.append('    virtual ~System() = default;')
-            lines.append('    virtual void on_start() {}')
-            lines.append('    virtual void on_update() {}')
-            lines.append('};')
-        
-        return '\n'.join(lines) + '\n'
 
     def _assemble(self, is_header: bool = True) -> str:
         parts = []
@@ -310,7 +252,7 @@ class CppCodeGen:
         for key, val in node.value.pairs:
             cpp_type, cpp_val = self._value_to_cpp(val)
             fields.append(f'    {cpp_type} {key};')
-            values.append(f'        .{key} = {cpp_val},')
+            values.append(f'    .{key} = {cpp_val},')
         struct_name = f'{node.name}_t'
         self.globals.append(f'struct {struct_name} {{')
         self.globals.extend(fields)
@@ -486,10 +428,14 @@ class CppCodeGen:
             result += self._generate_statement(s, indent + 1) + '\n'
         result += f'{pad}}}'
         if stmt.else_body:
-            result += f' else {{\n'
-            for s in stmt.else_body:
-                result += self._generate_statement(s, indent + 1) + '\n'
-            result += f'{pad}}}'
+            # Проверяем, elif ли это (одна инструкция IfStmt)
+            if len(stmt.else_body) == 1 and isinstance(stmt.else_body[0], IfStmt):
+                result += f' else {self._generate_if(stmt.else_body[0], indent)[len(pad):]}'
+            else:
+                result += f' else {{\n'
+                for s in stmt.else_body:
+                    result += self._generate_statement(s, indent + 1) + '\n'
+                result += f'{pad}}}'
         return result
 
     def _generate_while(self, stmt: WhileStmt, indent: int = 2) -> str:

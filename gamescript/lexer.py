@@ -45,6 +45,47 @@ class Lexer:
         self.line = 1
         self.col = 1
         self.tokens: List[Token] = []
+        self.indent_stack = [0]  # стек уровней отступа
+        self.at_line_start = True  # начало строки
+        self.bracket_depth = 0
+    
+    def compute_indent(self) -> int:
+        """Считает количество пробелов в начале строки."""
+        indent = 0
+        pos = self.pos
+        while pos < len(self.source) and self.source[pos] == ' ':
+            indent += 1
+            pos += 1
+        return indent
+    
+    def handle_indent(self):
+        """Вычисляет отступ текущей строки и генерирует INDENT/DEDENT."""
+        if not self.at_line_start or self.bracket_depth > 0:
+            return
+        # Считаем пробелы в начале строки
+        indent = 0
+        pos = self.pos
+        while pos < len(self.source) and self.source[pos] == ' ':
+            indent += 1
+            pos += 1
+        
+        current_indent = self.indent_stack[-1]
+        
+        if indent > current_indent:
+            # Отступ увеличился → INDENT
+            self.indent_stack.append(indent)
+            self.tokens.append(Token(TokenType.INDENT, 'INDENT', self.line, 1))
+        elif indent < current_indent:
+            # Отступ уменьшился → DEDENT(ы)
+            while indent < self.indent_stack[-1]:
+                self.indent_stack.pop()
+                self.tokens.append(Token(TokenType.DEDENT, 'DEDENT', self.line, 1))
+        
+        # Пропускаем пробелы
+        while self.pos < len(self.source) and self.source[self.pos] == ' ':
+            self.advance()
+        
+        self.at_line_start = False
 
     def current(self) -> str:
         return self.source[self.pos] if self.pos < len(self.source) else '\0'
@@ -55,6 +96,7 @@ class Lexer:
         if c == '\n':
             self.line += 1
             self.col = 1
+            self.at_line_start = True
         else:
             self.col += 1
         return c
@@ -65,7 +107,7 @@ class Lexer:
     def skip_whitespace_and_comments(self):
         while self.pos < len(self.source):
             c = self.current()
-            if c in ' \t\r\n':
+            if c in ' \t\r':
                 self.advance()
             elif c == '#':
                 while self.pos < len(self.source) and self.current() != '\n':
@@ -122,45 +164,66 @@ class Lexer:
         return Token(TokenType.IDENT, ident, self.line, self.col)
 
     def tokenize(self) -> List[Token]:
+        # Начальный отступ
+        self.indent_stack = [0]
+        self.at_line_start = True
+        
         while self.pos < len(self.source):
+            # В начале строки — обрабатываем отступ
+            if self.at_line_start:
+                self.handle_indent()
+            
             self.skip_whitespace_and_comments()
             if self.pos >= len(self.source):
                 break
-
+    
             c = self.current()
             
+            # Док-строки
             if c in '"\'' and self.peek_str(3) in ('"""', "'''"):
                 s = self.read_docstring(c)
                 self.tokens.append(Token(TokenType.STRING, s, self.line, self.col))
+            # Обычные строки
             elif c in '"\'':
                 s = self.read_string(c)
                 self.tokens.append(Token(TokenType.STRING, s, self.line, self.col))
+            
+            # Числа
             elif c.isdigit():
                 self.tokens.append(self.read_number())
+            # Идентификаторы
             elif c.isalpha() or c == '_':
                 self.tokens.append(self.read_ident())
+            # Импорты
             elif c == '@':
                 self.advance()
                 if self.peek_str(4) == 'load':
-                    for _ in range(4):
-                        self.advance()
+                    for _ in range(4): self.advance()
                     if self.current() == '?':
                         self.advance()
                         self.tokens.append(Token(TokenType.AT_LOAD_OPT, '@load?', self.line, self.col))
                     else:
                         self.tokens.append(Token(TokenType.AT_LOAD, '@load', self.line, self.col))
+            # Скобки
             elif c == '{':
                 self.tokens.append(Token(TokenType.LBRACE, '{', self.line, self.col)); self.advance()
+                self.bracket_depth += 1
             elif c == '}':
                 self.tokens.append(Token(TokenType.RBRACE, '}', self.line, self.col)); self.advance()
+                self.bracket_depth -= 1
             elif c == '(':
                 self.tokens.append(Token(TokenType.LPAREN, '(', self.line, self.col)); self.advance()
+                self.bracket_depth += 1
             elif c == ')':
                 self.tokens.append(Token(TokenType.RPAREN, ')', self.line, self.col)); self.advance()
+                self.bracket_depth -= 1
             elif c == '[':
                 self.tokens.append(Token(TokenType.LBRACKET, '[', self.line, self.col)); self.advance()
+                self.bracket_depth += 1
             elif c == ']':
                 self.tokens.append(Token(TokenType.RBRACKET, ']', self.line, self.col)); self.advance()
+                self.bracket_depth -= 1
+            # Операторы сравнения
             elif c == '<':
                 self.advance()
                 if self.current() == '=':
@@ -175,6 +238,7 @@ class Lexer:
                     self.tokens.append(Token(TokenType.GREATER_EQUALS, '>=', self.line, self.col))
                 else:
                     self.tokens.append(Token(TokenType.GREATER, '>', self.line, self.col))
+            # Разделители
             elif c == ':':
                 self.tokens.append(Token(TokenType.COLON, ':', self.line, self.col)); self.advance()
             elif c == ',':
@@ -183,6 +247,7 @@ class Lexer:
                 self.tokens.append(Token(TokenType.SEMICOLON, ';', self.line, self.col)); self.advance()
             elif c == '.':
                 self.tokens.append(Token(TokenType.DOT, '.', self.line, self.col)); self.advance()
+            # Операторы
             elif c == '=':
                 self.advance()
                 if self.current() == '=':
@@ -231,6 +296,11 @@ class Lexer:
                     self.tokens.append(Token(TokenType.SLASH, '/', self.line, self.col))
             else:
                 self.advance()
-
+    
+        # В конце генерируем оставшиеся DEDENT
+        while len(self.indent_stack) > 1:
+            self.indent_stack.pop()
+            self.tokens.append(Token(TokenType.DEDENT, 'DEDENT', self.line, 1))
+        
         self.tokens.append(Token(TokenType.EOF, '', self.line, self.col))
         return self.tokens

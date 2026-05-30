@@ -42,7 +42,7 @@ def test_docstring_single_quotes():
 def test_keywords():
     lexer = Lexer("class def pass if else while for in return continue break true false None not and or print assert")
     tokens = lexer.tokenize()
-    types = [t.type for t in tokens if t.type != TokenType.EOF]
+    types = [t.type for t in tokens if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
     assert types == [TokenType.CLASS, TokenType.DEF, TokenType.PASS, TokenType.IF, TokenType.ELSE,
                      TokenType.WHILE, TokenType.FOR, TokenType.IN, TokenType.RETURN,
                      TokenType.CONTINUE, TokenType.BREAK, TokenType.TRUE, TokenType.FALSE, TokenType.NONE,
@@ -51,13 +51,13 @@ def test_keywords():
 
 def test_type_constructors():
     lexer = Lexer("int float str bool list dict")
-    types = [t.type for t in lexer.tokenize() if t.type != TokenType.EOF]
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
     assert types == [TokenType.INT, TokenType.FLOAT, TokenType.STR, TokenType.BOOL, TokenType.LIST, TokenType.DICT]
 
 
 def test_operators():
     lexer = Lexer("{}() : , ; . = == != + - * /")
-    types = [t.type for t in lexer.tokenize() if t.type != TokenType.EOF]
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
     assert types == [TokenType.LBRACE, TokenType.RBRACE, TokenType.LPAREN, TokenType.RPAREN,
                      TokenType.COLON, TokenType.COMMA, TokenType.SEMICOLON, TokenType.DOT,
                      TokenType.EQUALS, TokenType.EQUALS_EQUALS, TokenType.NOT_EQUALS,
@@ -66,13 +66,13 @@ def test_operators():
 
 def test_comparison_operators():
     lexer = Lexer("< > <= >=")
-    types = [t.type for t in lexer.tokenize() if t.type != TokenType.EOF]
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
     assert types == [TokenType.LESS, TokenType.GREATER, TokenType.LESS_EQUALS, TokenType.GREATER_EQUALS]
 
 
 def test_compound_assignment_tokens():
     lexer = Lexer("+= -= *= /=")
-    types = [t.type for t in lexer.tokenize() if t.type != TokenType.EOF]
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
     assert types == [TokenType.PLUS_EQUALS, TokenType.MINUS_EQUALS, TokenType.STAR_EQUALS, TokenType.SLASH_EQUALS]
 
 
@@ -84,20 +84,21 @@ def test_comment():
 
 def test_imports_load():
     lexer = Lexer('@load "hero.gs"\n@load? "optional.gs"')
-    types = [t.type for t in lexer.tokenize() if t.type != TokenType.EOF]
+    tokens = lexer.tokenize()
+    types = [t.type for t in tokens if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
     assert types == [TokenType.AT_LOAD, TokenType.STRING, TokenType.AT_LOAD_OPT, TokenType.STRING]
 
 
 def test_dict_syntax():
     source = '''HERO = { "name": "Артур", "hp": 100 }'''
     lexer = Lexer(source)
-    types = [t.type for t in lexer.tokenize() if t.type != TokenType.EOF]
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
     assert TokenType.IDENT in types and TokenType.LBRACE in types and TokenType.RBRACE in types
 
 
 def test_brackets():
     lexer = Lexer("[ ]")
-    types = [t.type for t in lexer.tokenize() if t.type != TokenType.EOF]
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
     assert types == [TokenType.LBRACKET, TokenType.RBRACKET]
 
 

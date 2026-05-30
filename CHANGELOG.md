@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.4.2 (2026-05-31)
+
+### Добавлено
+- INDENT/DEDENT — отступы как в Python, блоки определяются пробелами
+- `else if` вместо `else { if ... }` для `elif`
+- Счётчик скобок — отступы подавляются внутри `{}`, `()`, `[]`
+
+### Исправлено
+- `break` и `continue` в циклах — правильные отступы
+- Вложенные `if`, `while`, `for` — корректные блоки
+- Отступы в сгенерированных struct (4 пробела)
+- `_parse_block` переписан под INDENT/DEDENT
+- Убран бесконечный цикл при DEDENT
+
+### Удалено
+- `RUNTIME_H`, `ensure_runtime`, `generate_runtime` — старый хардкод
+- `_register_field`, `_check_type`, `generate_runtime_from_data` — неиспользуемые методы
+- Дублирующиеся блоки `BinaryOp` в `_expr_to_cpp`
+- `mainfile.gs` и лишние примеры
+
+### Оптимизировано
+- Лексер: `handle_indent` с bracket_depth
+- Парсер: единый `_parse_block` через INDENT/DEDENT
+- Кодген: `elif` → `else if`
+
 ## v0.4.1 (2026-05-30)
 
 ### Исправлено
