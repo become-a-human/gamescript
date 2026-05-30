@@ -1,76 +1,88 @@
-<h1>GameScript</h1>
+# GameScript
+![License](https://img.shields.io/github/license/become-a-human/gamescript)
+![Version](https://img.shields.io/badge/version-0.4.1-orange)
+![PyVer](https://img.shields.io/badge/python-3.9+-blue)
+![Output](https://img.shields.io/badge/output-C++-00599C)
 
-<a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/github/license/become-a-human/gamescript"/></a> <a href="https://github.com/become-a-human/gamescript"><img src="https://img.shields.io/badge/version-0.4.1-orange"/></a> <img src="https://img.shields.io/badge/python-3.9+-blue"/> <img src="https://img.shields.io/badge/output-C++-00599C"/>
+DSL для геймдева, компилируется в C++. Пиши как на Python, работает как C++.
 
-<p>DSL для геймдева, компилируется в C++. Пиши как на Python, работает как C++.</p>
+>⚠️ <strong>v0.4.1</strong> — активная разработка.
 
-<blockquote>
-⚠️ <strong>Ранняя версия (v0.4.1).</strong> Активная разработка.
-</blockquote>
+## Быстрый старт
+```
+pip install -e .
+gamescript --version
+```
 
-<h2>Быстрый старт</h2>
-<pre><code>pip install -e .
-gamescript --version</code></pre>
-
-<h2>Пример</h2>
-<h3>hero.gs</h3>
-<pre><code># --header
+## Пример
+### hero.gs
+```
+# --header
 @load "entity"
-
 HERO = { "name": "Артур", "hp": 100 }
 
 class Hero(Entity):
-    def on_create(self):
-        self.hp = HERO.hp
-        self:set_animation("idle", 4, 10)
-    
-    def take_damage(self, amount: int):
-        self.hp = self.hp - amount
-        if self.hp <= 0:
-            self.is_alive = false</code></pre>
+def on_create(self):
+self.hp = HERO.hp
+self:set_animation("idle", 4, 10)
 
-<h3>Сгенерированный hero.h</h3>
-<pre><code>#pragma once
+def take_damage(self, amount: int):
+    self.hp = self.hp - amount
+    if self.hp <= 0:
+        self.is_alive = false
+```
+
+### hero.h (сгенерированный заголовок)
+```
+#pragma once
 #include "entity.h"
-
 struct HERO_t { std::string name; int hp; };
 const HERO_t HERO = { .name = "Артур", .hp = 100 };
 
+
 class Hero : public Entity {
-public:
+    public:
     void on_create();
     void take_damage(int amount);
-};</code></pre>
+};
+```
 
-<h2>Возможности</h2>
-<ul>
-    <li>Словари → C++ struct</li>
-    <li>Классы с наследованием, перегрузка методов</li>
-    <li>Автовывод типов, конструкторы</li>
-    <li>Раздельная компиляция (<code># --header</code>)</li>
-    <li><code>@load</code> → <code>#include</code></li>
-    <li><code>__main__.gs</code> → <code>int main()</code></li>
-    <li><code>if</code>/<code>elif</code>/<code>else</code>, <code>while</code>, <code>for</code></li>
-    <li><code>++</code>, <code>--</code>, <code>+=</code>, <code>and</code>, <code>or</code>, <code>not</code></li>
-    <li><code>print()</code>, <code>assert</code></li>
-    <li><code>--build -o game</code> — бинарник</li>
-    <li><code>--version</code></li>
-</ul>
+## Возможности
+- Автовывод типов
+- Раздельная компиляция (# --header)
+- Прямая компиляция (--build)
 
-<h2>Использование</h2>
-<pre><code>gamescript hero.gs                  # в консоль
-gamescript hero.gs hero.h           # заголовок
-gamescript __main__.gs --build -o game  # бинарник
+## Структура проекта
+```
+gamescript/
+    ├── gamescript/          # компилятор
+    │   ├── tokens.py
+    │   ├── lexer.py
+    │   ├── ast_nodes.py
+    │   ├── parser.py
+    │   ├── codegen_cpp.py
+    │   └── compiler.py
+    ├── examples/            # примеры
+    │   ├── entity.gs        # базовый класс
+    │   ├── system.gs        # базовый класс
+    │   ├── joystick.gs      # джойстик
+    │   ├── hero.gs          # герой
+    │   └── __main__.gs      # точка входа
+    ├── tests/
+    ├── Makefile
+    ├── setup.py
+    ├── CHANGELOG.md
+    ├── LICENSE
+    └── README.md
+```
+
+## Использование
+```
+gamescript hero.gs                     # в консоль
+gamescript hero.gs hero.h              # заголовок
+gamescript __main__.gs --build -o game # прямая компиляция в бинарник
 
 from gamescript import compile_file, compile_text
 cpp = compile_text('HERO = { "hp": 100 }')
-compile_file("__main__.gs", build=True)</code></pre>
-
-<h2>Ссылки</h2>
-<ul>
-    <li><a href="https://t.me/kraudov">Telegram</a></li>
-    <li><a href="https://github.com/become-a-human/gamescript/issues">Баг-репорты</a></li>
-</ul>
-
-<h2>Лицензия</h2>
-<p><a href="LICENSE">WTFPL</a> — делай что хочешь.</p>
+compile_file("main.gs", build=True)
+```
