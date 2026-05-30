@@ -49,7 +49,7 @@ def compile_text(source: str, output_path: Optional[str] = None,
     parser = Parser(tokens)
     ast = parser.parse()
 
-    gen = CppCodeGen()
+    gen = CppCodeGen(base_path=base_path or Path.cwd())
 
     for stmt in ast.statements:
         if isinstance(stmt, LoadStmt):
@@ -136,7 +136,7 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
                                     field = s.name.replace('self.', '')
                                     if field not in all_fields:
                                         all_fields[field] = _infer_cpp_type(s.value)
-    gen_runtime = CppCodeGen()
+    gen_runtime = CppCodeGen(base_path=input_file.parent)
     runtime_h = gen_runtime.generate_runtime_from_data(all_bases, all_fields)
     (output_dir / 'runtime.h').write_text(runtime_h, encoding='utf-8')
     
@@ -180,20 +180,57 @@ def _find_file(filename: str, base_path: Path) -> Optional[Path]:
     for ext in ALLOWED_EXTENSIONS:
         path = base_path / (filename + ext)
         if path.exists(): return path
-    return None
+    
+    # Дружелюбная ошибка
+    tried = [str(base_path / filename)]
+    for ext in ALLOWED_EXTENSIONS:
+        tried.append(str(base_path / (filename + ext)))
+    raise ParseError(
+        f"Файл не найден: {filename}",
+        0, 0,
+        f"Искал:\n  " + "\n  ".join(tried)
+    )
 
 
-if __name__ == '__main__':
+def main():
     import sys
+    
+    if '--version' in sys.argv or '-v' in sys.argv:
+        from . import __version__
+        print(f"GameScript v{__version__}")
+        sys.exit(0)
+    
     header_only = '--header' in sys.argv
     build = '--build' in sys.argv
-    args = [a for a in sys.argv[1:] if a not in ('--header', '--build')]
+    args = [a for a in sys.argv[1:] if a not in ('--header', '--build', '-o')]
+    
+    output_name = None
+    if '-o' in sys.argv:
+        idx = sys.argv.index('-o')
+        if idx + 1 < len(sys.argv):
+            output_name = sys.argv[idx + 1]
+    
     if len(args) < 1:
-        print("Использование: python -m gamescript.compiler <файл.gs> [выход] [--header] [--build]")
+        print("Использование: python -m gamescript.compiler <файл.gs> [выход] [--header] [--build] [-o name]")
         sys.exit(1)
+    
+    input_file = args[0]
+    output_file = args[1] if len(args) > 1 else None
+    
     try:
-        cpp = compile_file(args[0], args[1] if len(args) > 1 else None, header_only=header_only, build=build)
-        if len(args) <= 1: print(cpp)
+        cpp = compile_file(input_file, output_file, header_only=header_only, build=build)
+        if build and output_name:
+            import shutil
+            binary_path = str(Path(output_file).with_suffix(''))
+            target = str(Path(output_file).parent / output_name)
+            shutil.move(binary_path, target)
+            print(f'✓ Бинарник переименован в {target}')
+        if not output_file:
+            print(cpp)
     except (SyntaxError, ValueError, ParseError) as e:
         print(f"Ошибка: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+if __name__ == "__main__":
+	main()

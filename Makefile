@@ -1,4 +1,5 @@
 PYTHONWARNINGS=ignore
+NAME = game
 
 .PHONY: install test test-lexer test-parser test-compiler compile build clean
 
@@ -40,20 +41,13 @@ compile:
 	python -m gamescript.compiler examples/enemies.gs examples/generated/enemies.h
 	python -m gamescript.compiler examples/inventory.gs examples/generated/inventory.h
 	python -m gamescript.compiler examples/equipment.gs examples/generated/equipment.h
-	python -m gamescript.compiler examples/mainfile.gs examples/generated/mainfile.cpp
+	python -m gamescript.compiler examples/__main__.gs examples/generated/__main__.cpp
 	@echo "✓ Все примеры скомпилированы в examples/generated/"
 
-# Полная сборка (скомпилировать + скомпоновать в бинарник)
+# Полная сборка (скомпоновать в бинарник)
 build:
 	@mkdir -p examples/generated
-	python -m gamescript.compiler examples/entity.gs examples/generated/entity.h
-	python -m gamescript.compiler examples/system.gs examples/generated/system.h
-	python -m gamescript.compiler examples/hero.gs examples/generated/hero.h
-	python -m gamescript.compiler examples/weapons.gs examples/generated/weapons.h
-	python -m gamescript.compiler examples/enemies.gs examples/generated/enemies.h
-	python -m gamescript.compiler examples/inventory.gs examples/generated/inventory.h
-	python -m gamescript.compiler examples/equipment.gs examples/generated/equipment.h
-	python -m gamescript.compiler examples/__main__.gs examples/generated/mainfile.cpp --build
+	python -m gamescript.compiler examples/__main__.gs examples/generated/__main__.cpp --build -o $(NAME)
 
 # Очистка
 clean:

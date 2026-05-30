@@ -27,8 +27,8 @@ class CodeGenError(Exception):
 
 
 class CppCodeGen:
-    
-    def __init__(self):
+    def __init__(self, base_path: Path = None):
+        self.base_path = base_path or Path.cwd()
         self.includes: List[str] = []
         self.globals: List[str] = []
         self.classes: List[str] = []
@@ -83,7 +83,7 @@ class CppCodeGen:
     def _load_base_class(self, parent_name: str) -> dict:
         """Загружает поля базового класса из entity.gs или system.gs."""
         base_file = f'{parent_name.lower()}.gs'
-        base_path = Path.cwd() / 'examples' / base_file  # временно
+        base_path = self.base_path / 'examples' / base_file
         if not base_path.exists():
             return {}
         
@@ -167,6 +167,8 @@ class CppCodeGen:
 
     def _assemble(self) -> str:
         parts = []
+        parts.append('#pragma once')
+        parts.append('')
         for inc in self.includes:
             parts.append(inc)
         if self.includes:
@@ -210,19 +212,17 @@ class CppCodeGen:
                     if name not in fields:
                         fields[name] = 'int'
         
+        # Загружаем поля из entity.gs / system.gs (но НЕ выводим их)
         parent_field_names = set()
         if node.parent in ('Entity', 'System'):
             base_fields = self._load_base_class(node.parent)
-            for bfield, btype in base_fields.items():
-                if bfield not in fields:
-                    fields[bfield] = btype
             parent_field_names = set(base_fields.keys())
         elif node.parent:
             parent_fields = self._get_parent_fields(node.parent)
-            for pfield, ptype in parent_fields.items():
-                if pfield not in fields:
-                    fields[pfield] = ptype
             parent_field_names = set(parent_fields.keys())
+        
+        # Выводим ТОЛЬКО свои поля (не родительские)
+        own_fields = {k: v for k, v in fields.items() if k not in parent_field_names}
         
         if node.parent:
             lines.append(f'class {node.name} : public {node.parent} {{')
@@ -232,8 +232,16 @@ class CppCodeGen:
         if node.doc:
             lines.append(f'    // {node.doc}')
         
+        # Все поля для вывода: свои + родительские (родительские только не от Entity/System)
+        display_fields = dict(own_fields)
+        if node.parent and node.parent not in ('Entity', 'System'):
+            for pfield in parent_field_names:
+                if pfield not in display_fields:
+                    parent_type = parent_fields.get(pfield, 'int')
+                    display_fields[pfield] = parent_type
+        
         type_map = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool', 'null': 'std::nullptr_t'}
-        for fname, ftype in fields.items():
+        for fname, ftype in display_fields.items():
             if ftype in type_map:
                 cpp_type = type_map[ftype]
             elif ftype.startswith('vector'):
@@ -245,10 +253,10 @@ class CppCodeGen:
                 cpp_type = f'{ftype}*'
             lines.append(f'    {cpp_type} {fname};')
         
-        if fields:
+        if display_fields:
             lines.append('')
         
-        for fname, ftype in fields.items():
+        for fname, ftype in display_fields.items():
             if ftype == 'str':
                 self._used_std.add('string')
             elif ftype.startswith('vector'):
@@ -258,7 +266,6 @@ class CppCodeGen:
                 self._used_std.add('any')
         
         if node.parent and node.parent not in ('Entity', 'System'):
-            own_fields = {k: v for k, v in fields.items() if k not in parent_field_names}
             if own_fields:
                 init_list = [f'{fname}({self._default_value(ftype)})' for fname, ftype in own_fields.items()]
                 lines.append(f'    {node.name}() : {", ".join(init_list)} {{}}')

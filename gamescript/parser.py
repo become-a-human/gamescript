@@ -35,8 +35,12 @@ from .ast_nodes import *
 
 
 class ParseError(SyntaxError):
-    def __init__(self, msg: str, line: int, col: int):
-        super().__init__(f"{msg} (строка {line}, колонка {col})")
+    def __init__(self, msg: str, line: int, col: int, context: str = ""):
+        self.line = line
+        self.col = col
+        self.context = context
+        pointer = " " * (col - 1) + "^"
+        super().__init__(f"{msg}\n  строка {line}, колонка {col}\n  {context}\n  {pointer}")
 
 
 class Parser:

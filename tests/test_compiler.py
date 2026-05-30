@@ -140,6 +140,14 @@ def test_compile_decrement():
     assert 'this->hp--;' in cpp
 
 
+def test_file_not_found_error():
+    try:
+        compile_text('@load "nonexistent_file_12345"')
+        assert False
+    except ParseError as e:
+        assert "не найден" in str(e)
+
+
 if __name__ == "__main__":
     test_simple_compile(); test_compile_with_load()
     test_compile_with_optional_missing(); test_compile_with_optional_present()
@@ -151,4 +159,5 @@ if __name__ == "__main__":
     test_compile_load_like(); test_compile_load_like_star()
     test_compile_not(); test_compile_elif(); test_compile_list_literal()
     test_compile_increment(); test_compile_decrement()
+    test_file_not_found_error()
     print("✓ Все тесты компилятора пройдены!")

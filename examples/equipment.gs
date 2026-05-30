@@ -1,4 +1,5 @@
 # --header
+@load "system"
 # ===== ЭКИПИРОВКА =====
 EQUIPMENT_SLOTS = {
     "mainhand": None,

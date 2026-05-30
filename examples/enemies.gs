@@ -1,4 +1,5 @@
 # --header
+@load "entity"
 # ===== ВРАГИ =====
 GOBLIN = {
     "name": "Гоблин",

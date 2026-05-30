@@ -1,4 +1,5 @@
 # --header
+@load "system"
 # ===== ИНВЕНТАРЬ =====
 INVENTORY_CONFIG = {
     "max_slots": 20,
