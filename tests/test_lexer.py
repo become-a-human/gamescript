@@ -102,6 +102,59 @@ def test_brackets():
     assert types == [TokenType.LBRACKET, TokenType.RBRACKET]
 
 
+def test_indent_dedent():
+    """Отступы генерируют INDENT/DEDENT."""
+    source = '''class Hero:
+    def on_create(self):
+        self.hp = 100'''
+    lexer = Lexer(source)
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF,)]
+    assert types == [
+        TokenType.CLASS, TokenType.IDENT, TokenType.COLON,
+        TokenType.INDENT,
+        TokenType.DEF, TokenType.IDENT, TokenType.LPAREN, TokenType.IDENT, TokenType.RPAREN, TokenType.COLON,
+        TokenType.INDENT,
+        TokenType.IDENT, TokenType.DOT, TokenType.IDENT, TokenType.EQUALS, TokenType.NUMBER,
+        TokenType.DEDENT,
+        TokenType.DEDENT,
+    ]
+
+
+def test_bracket_depth_suppresses_indent():
+    """Отступы внутри скобок не генерируют INDENT."""
+    source = '''HERO = {
+    "hp": 100,
+    "mp": 50
+}'''
+    lexer = Lexer(source)
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
+    # INDENT/DEDENT не должны появиться внутри {}
+    assert types == [
+        TokenType.IDENT, TokenType.EQUALS, TokenType.LBRACE,
+        TokenType.STRING, TokenType.COLON, TokenType.NUMBER, TokenType.COMMA,
+        TokenType.STRING, TokenType.COLON, TokenType.NUMBER,
+        TokenType.RBRACE,
+    ]
+
+
+def test_increment_decrement():
+    lexer = Lexer("++ --")
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
+    assert types == [TokenType.PLUS_PLUS, TokenType.MINUS_MINUS]
+
+
+def test_like_keyword():
+    lexer = Lexer('@load "hero" like "Player"')
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
+    assert types == [TokenType.AT_LOAD, TokenType.STRING, TokenType.LIKE, TokenType.STRING]
+
+
+def test_not_operator():
+    lexer = Lexer("not self.is_alive")
+    types = [t.type for t in lexer.tokenize() if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
+    assert types == [TokenType.NOT, TokenType.IDENT, TokenType.DOT, TokenType.IDENT]
+
+
 if __name__ == "__main__":
     test_empty(); test_numbers(); test_strings()
     test_docstring(); test_docstring_single_quotes()
@@ -109,4 +162,6 @@ if __name__ == "__main__":
     test_comparison_operators(); test_compound_assignment_tokens()
     test_comment(); test_imports_load(); test_dict_syntax()
     test_brackets()
+    test_indent_dedent(); test_bracket_depth_suppresses_indent()
+    test_increment_decrement(); test_like_keyword(); test_not_operator()
     print("✓ Все тесты лексера пройдены!")

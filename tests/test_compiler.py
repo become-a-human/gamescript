@@ -148,6 +148,104 @@ def test_file_not_found_error():
         assert "не найден" in str(e)
 
 
+def test_compile_indent_blocks():
+    """Правильные отступы в сгенерированном C++."""
+    cpp = compile_text('''class Hero(Entity):
+    def loop(self):
+        while self.hp > 0:
+            if self.hp == 10:
+                break
+            if self.hp == 5:
+                continue
+            self.hp = self.hp - 1''')
+    assert 'break;' in cpp
+    assert 'continue;' in cpp
+    # break не должен быть внутри другого if
+    assert 'if (this->hp == 10) {\n                break;\n            }' in cpp
+
+
+def test_compile_nested_while():
+    """Вложенные while."""
+    cpp = compile_text('''class Hero(Entity):
+    def loop(self):
+        while self.hp > 0:
+            while self.mp > 0:
+                self.mp = self.mp - 1
+            self.hp = self.hp - 1''')
+    # Правильные отступы для вложенных блоков
+    assert 'while (this->hp > 0)' in cpp
+    assert 'while (this->mp > 0)' in cpp
+
+
+def test_compile_else_if():
+    """elif → else if."""
+    cpp = compile_text('''class Hero(Entity):
+    def check(self):
+        if self.hp > 80:
+            self.status = "great"
+        elif self.hp > 50:
+            self.status = "good"
+        else:
+            self.status = "bad"''')
+    assert 'else if (this->hp > 50)' in cpp
+
+
+def test_compile_null_check():
+    """None → nullptr."""
+    cpp = compile_text('''class Hero(Entity):
+    def check(self):
+        if self.target != None:
+            self.hp = 100''')
+    assert 'this->target != nullptr' in cpp
+
+
+def test_compile_print():
+    """print() → std::cout."""
+    cpp = compile_text('''class Hero(Entity):
+    def debug(self):
+        print(self.hp)''')
+    assert 'std::cout' in cpp
+    assert 'std::endl' in cpp
+
+
+def test_compile_assert():
+    """assert → assert()."""
+    cpp = compile_text('''class Hero(Entity):
+    def check(self):
+        assert self.hp >= 0''')
+    assert 'assert(' in cpp
+
+
+def test_compile_logical_operators():
+    """and/or → &&/||."""
+    cpp = compile_text('''class Hero(Entity):
+    def check(self):
+        if self.hp > 0 and self.mp > 0:
+            self.is_alive = true''')
+    assert '&&' in cpp
+
+
+def test_compile_class_without_parent():
+    """Класс без родителя генерирует class без : public."""
+    cpp = compile_text('''class Entity:
+    def on_create(self):
+        self.hp = 100''')
+    assert 'class Entity {' in cpp
+    assert ': public' not in cpp.split('class Entity')[1].split('{')[0]
+
+
+def test_compile_struct_formatting():
+    """Отступы в struct."""
+    cpp = compile_text('HERO = { "hp": 100, "mp": 50 }')
+    assert '    int hp;\n    int mp;' in cpp or '    int hp;' in cpp
+
+
+def test_compile_pragma_once():
+    """#pragma once в .h файлах."""
+    cpp = compile_header('HERO = { "hp": 100 }', "/dev/null")
+    assert '#pragma once' in cpp
+
+
 if __name__ == "__main__":
     test_simple_compile(); test_compile_with_load()
     test_compile_with_optional_missing(); test_compile_with_optional_present()
@@ -160,4 +258,9 @@ if __name__ == "__main__":
     test_compile_not(); test_compile_elif(); test_compile_list_literal()
     test_compile_increment(); test_compile_decrement()
     test_file_not_found_error()
+    test_compile_indent_blocks(); test_compile_nested_while()
+    test_compile_else_if(); test_compile_null_check()
+    test_compile_print(); test_compile_assert()
+    test_compile_logical_operators(); test_compile_class_without_parent()
+    test_compile_struct_formatting(); test_compile_pragma_once()
     print("✓ Все тесты компилятора пройдены!")

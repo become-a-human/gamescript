@@ -419,6 +419,11 @@ class CppCodeGen:
             elif stmt.op == '--':
                 return f'{pad}{name}--;'
             return f'{pad}{name} {stmt.op} {self._expr_to_cpp(stmt.value)};'
+        elif isinstance(stmt, UnaryOp):
+            if stmt.op in ('++', '--'):
+                name = self._expr_to_cpp(stmt.expr).replace('self.', 'this->')
+                return f'{pad}{stmt.op}{name};'
+            return f'{pad}{stmt.op}{self._expr_to_cpp(stmt.expr)};'
         return f'{pad}// TODO: {type(stmt).__name__}'
 
     def _generate_if(self, stmt: IfStmt, indent: int = 2) -> str:
@@ -479,6 +484,8 @@ class CppCodeGen:
             op = op_map.get(expr.op, expr.op)
             return f'{self._expr_to_cpp(expr.left)} {op} {self._expr_to_cpp(expr.right)}'
         elif isinstance(expr, UnaryOp):
+            if expr.op in ('++', '--'):
+                return f'{expr.op}{self._expr_to_cpp(expr.expr)}'
             return f'{expr.op}{self._expr_to_cpp(expr.expr)}'
         elif isinstance(expr, ListLiteral):
             elements = ', '.join(self._expr_to_cpp(e) for e in expr.elements)

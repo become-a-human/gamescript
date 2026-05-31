@@ -59,6 +59,8 @@ class Parser:
         elif t.type == TokenType.DEDENT: self.advance(); return None
         elif t.type == TokenType.IDENT: return self._parse_ident_stmt()
         elif t.type == TokenType.PASS: self.advance(); return None
+        elif t.type == TokenType.PRINT: return self._parse_print()
+        elif t.type == TokenType.ASSERT: return self._parse_assert()
         else: return self._parse_expression()
 
     def _parse_block(self) -> List[ASTNode]:
@@ -183,7 +185,19 @@ class Parser:
                 break
         
         return ClassDef(name, parent, doc, methods)
-
+    
+    def _parse_print(self) -> PrintStmt:
+        self.expect(TokenType.PRINT)
+        self.expect(TokenType.LPAREN)
+        value = self._parse_expression()
+        self.expect(TokenType.RPAREN)
+        return PrintStmt(value)
+    
+    def _parse_assert(self) -> AssertStmt:
+        self.expect(TokenType.ASSERT)
+        condition = self._parse_expression()
+        return AssertStmt(condition)
+    
     def _parse_method(self) -> MethodDef:
         self.expect(TokenType.DEF)
         name = self.expect(TokenType.IDENT).value
@@ -303,6 +317,13 @@ class Parser:
 
     def _parse_primary(self) -> ASTNode:
         t = self.peek()
+        
+        # Префиксные ++ и --
+        if t.type in (TokenType.PLUS_PLUS, TokenType.MINUS_MINUS):
+            op = self.advance().value
+            expr = self._parse_primary()
+            return UnaryOp(op, expr)
+        
         if t.type == TokenType.NOT: self.advance(); return UnaryOp('!', self._parse_primary())
         if t.type == TokenType.IDENT:
             self.advance()
