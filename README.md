@@ -1,6 +1,6 @@
 # GameScript
 ![License](https://img.shields.io/github/license/become-a-human/gamescript)
-![Version](https://img.shields.io/badge/version-0.4.2-orange)
+![Version](https://img.shields.io/badge/version-0.4.3-orange)
 ![PyVer](https://img.shields.io/badge/python-3.9+-blue)
 ![Output](https://img.shields.io/badge/output-C++-00599C)
 
