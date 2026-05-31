@@ -40,13 +40,13 @@ def test_docstring_single_quotes():
 
 
 def test_keywords():
-    lexer = Lexer("class def pass if else while for in return continue break true false None not and or print assert")
+    lexer = Lexer("class def pass if else while for in return continue break true false None not and or print assert fn")
     tokens = lexer.tokenize()
     types = [t.type for t in tokens if t.type not in (TokenType.EOF, TokenType.INDENT, TokenType.DEDENT)]
     assert types == [TokenType.CLASS, TokenType.DEF, TokenType.PASS, TokenType.IF, TokenType.ELSE,
                      TokenType.WHILE, TokenType.FOR, TokenType.IN, TokenType.RETURN,
                      TokenType.CONTINUE, TokenType.BREAK, TokenType.TRUE, TokenType.FALSE, TokenType.NONE,
-                     TokenType.NOT, TokenType.AND, TokenType.OR, TokenType.PRINT, TokenType.ASSERT]
+                     TokenType.NOT, TokenType.AND, TokenType.OR, TokenType.PRINT, TokenType.ASSERT, TokenType.FN]
 
 
 def test_type_constructors():

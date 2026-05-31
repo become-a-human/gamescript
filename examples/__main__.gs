@@ -1,14 +1,12 @@
-@load "sdl2"
-@load "sdl2_image"
 @load "entity"
 @load "system"
+@load "screen"
+@load "menu"
 @load "hero"
 
 class Main(System):
-    """Точка входа — генерирует int main()"""
-    
     def on_start(self):
-        self.gold = 100
+        self.screen = MainMenu()
         self.running = true
     
     def on_update(self):

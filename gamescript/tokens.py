@@ -85,6 +85,7 @@ class TokenType(Enum):
     OR = "OR"                  # or
     NOT = "NOT"                # not
     ELIF = "ELIF"              # elif
+    FN = "FN"                  # fn
     
     
     # Константы

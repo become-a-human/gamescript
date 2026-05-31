@@ -246,6 +246,28 @@ def test_compile_pragma_once():
     assert '#pragma once' in cpp
 
 
+def test_compile_lambda():
+    cpp = compile_text('class Hero(Entity):\n    def setup(self):\n        self.fn = fn(): 42')
+    assert '[&]' in cpp or 'lambda' in cpp
+
+
+def test_compile_vararg():
+    cpp = compile_text('''class Hero(Entity):
+    def sum(self, *numbers):
+        self.total = 0''')
+    assert 'std::vector<int> numbers' in cpp
+
+
+def test_compile_constructor():
+    cpp = compile_text('class Hero(Entity):\n    def create(self):\n        self.hero = Hero("Артур", 100)')
+    assert 'new Hero("Артур", 100)' in cpp
+
+
+def test_compile_constructor_no_args():
+    cpp = compile_text('class Hero(Entity):\n    def create(self):\n        self.hero = Hero()')
+    assert 'new Hero()' in cpp
+
+
 if __name__ == "__main__":
     test_simple_compile(); test_compile_with_load()
     test_compile_with_optional_missing(); test_compile_with_optional_present()
@@ -263,4 +285,7 @@ if __name__ == "__main__":
     test_compile_print(); test_compile_assert()
     test_compile_logical_operators(); test_compile_class_without_parent()
     test_compile_struct_formatting(); test_compile_pragma_once()
+    test_compile_lambda()
+    test_compile_vararg()
+    test_compile_constructor(); test_compile_constructor_no_args()
     print("✓ Все тесты компилятора пройдены!")

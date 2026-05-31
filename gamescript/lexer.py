@@ -37,6 +37,7 @@ class Lexer:
         'or': TokenType.OR,
         'not': TokenType.NOT,
         'elif': TokenType.ELIF,
+        'fn': TokenType.FN,
     }
 
     def __init__(self, source: str):
@@ -109,6 +110,8 @@ class Lexer:
             c = self.current()
             if c in ' \t\r':
                 self.advance()
+            elif c == '\n' and self.bracket_depth > 0:
+                self.advance()  # внутри скобок переносы строк — просто пробелы
             elif c == '#':
                 while self.pos < len(self.source) and self.current() != '\n':
                     self.advance()

@@ -66,6 +66,7 @@ class ClassDef(ASTNode):
 class MethodDef(ASTNode):
     name: str
     params: List[tuple] = field(default_factory=list)
+    vararg: Optional[str] = None
     body: List[ASTNode] = field(default_factory=list)
 
 # ===== Выражения =====
@@ -159,3 +160,8 @@ class AssertStmt(ASTNode):
 @dataclass
 class ListLiteral(ASTNode):
     elements: List[ASTNode] = field(default_factory=list)
+
+@dataclass
+class LambdaExpr(ASTNode):
+    params: List[tuple] = field(default_factory=list)
+    body: List[ASTNode] = field(default_factory=list)

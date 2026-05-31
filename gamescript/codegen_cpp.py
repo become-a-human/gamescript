@@ -80,7 +80,7 @@ class CppCodeGen:
                 self._generate_dict_def(stmt)
             elif isinstance(stmt, ClassDef):
                 self._generate_class_def(stmt)
-        return self._assemble()
+        return self._assemble(is_header=False)
 
     def generate_main(self, ast: Program) -> str:
         main_class = None
@@ -311,7 +311,7 @@ class CppCodeGen:
             fields.append(f'{cpp_type} {key};')
             vals.append(f'.{key} = {cpp_val}')
         code = f'[](){{\n        struct {{ {" ".join(fields)} }} tmp{{{", ".join(vals)}}};\n        return tmp;\n    }}()'
-        return 'auto', code
+        return 'std::map<std::string, std::any>', code
 
     def _use_std(self, header: str):
         self._used_std.add(header)
@@ -365,6 +365,8 @@ class CppCodeGen:
             return value.name
         elif isinstance(value, BinaryOp):
             return self._infer_type(value.left, method_params)
+        elif isinstance(value, FunCall):
+            return value.name
         return 'int'
 
     def _generate_method(self, method: MethodDef) -> List[str]:
@@ -372,6 +374,8 @@ class CppCodeGen:
         real_params = [(n, t) for n, t in method.params if n != 'self']
         type_map = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool'}
         params_str = ', '.join(f'{type_map.get(t, t)} {n}' for n, t in real_params)
+        if method.vararg:
+            params_str += f', std::vector<int> {method.vararg}'
         lines.append(f'    void {method.name}({params_str}) {{')
         if method.body:
             for stmt in method.body:
@@ -404,6 +408,9 @@ class CppCodeGen:
             obj = self._expr_to_cpp(stmt.obj)
             if obj == 'self': obj = 'this'
             return f'{pad}{obj}->{stmt.method}({", ".join(self._expr_to_cpp(a) for a in stmt.args)});'
+        elif isinstance(stmt, FunCall):
+            args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
+            return f'{pad}new {stmt.name}({args_str});'
         elif isinstance(stmt, DictDef):
             return f'{pad}// DictDef: {stmt.name}'
         elif isinstance(stmt, PrintStmt):
@@ -475,6 +482,8 @@ class CppCodeGen:
             obj = self._expr_to_cpp(expr.obj)
             if obj == 'self': obj = 'this'
             return f'{obj}->{expr.method}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
+        elif isinstance(expr, FunCall):
+            return f'new {expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
         elif isinstance(expr, TypeCall):
             return self._type_call_to_cpp(expr)[1]
         elif isinstance(expr, DictLiteral):
@@ -492,4 +501,8 @@ class CppCodeGen:
             return '{' + elements + '}'
         elif isinstance(expr, NoneLiteral):
             return 'nullptr'
+        elif isinstance(expr, LambdaExpr):
+            params_str = ', '.join(f'int {n}' for n, t in expr.params)
+            body_str = '; '.join(self._generate_statement(s, indent=0).strip() for s in expr.body)
+            return f'[&]({params_str}) {{ {body_str} }}'
         return f'/* {type(expr).__name__} */'

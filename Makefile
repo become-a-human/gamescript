@@ -36,6 +36,8 @@ compile:
 	python -m gamescript.compiler examples/entity.gs examples/generated/entity.h
 	python -m gamescript.compiler examples/system.gs examples/generated/system.h
 	python -m gamescript.compiler examples/joystick.gs examples/generated/joystick.h
+	python -m gamescript.compiler examples/screen.gs examples/generated/screen.h
+	python -m gamescript.compiler examples/menu.gs examples/generated/menu.h
 	python -m gamescript.compiler examples/hero.gs examples/generated/hero.h
 	python -m gamescript.compiler examples/__main__.gs examples/generated/__main__.cpp
 

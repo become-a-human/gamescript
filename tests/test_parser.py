@@ -330,6 +330,64 @@ def test_null_in_expression():
     assert isinstance(condition.right, NoneLiteral)
 
 
+def test_lambda_no_params():
+    source = 'f = fn(): 42'
+    ast = Parser(tokenize(source)).parse()
+    stmt = ast.statements[0]
+    assert isinstance(stmt, Assignment)
+    assert isinstance(stmt.value, LambdaExpr)
+    assert len(stmt.value.body) == 1
+
+
+def test_lambda_with_params():
+    source = 'f = fn(x: int): x * 2'
+    ast = Parser(tokenize(source)).parse()
+    lam = ast.statements[0].value
+    assert lam.params == [('x', 'int')]
+    assert len(lam.body) == 1
+
+
+def test_vararg():
+    source = '''class Hero(Entity):
+    def sum(self, *numbers):
+        for n in numbers:
+            self.total = self.total + n'''
+    ast = Parser(tokenize(source)).parse()
+    method = ast.statements[0].methods[0]
+    assert method.vararg == "numbers"
+    assert len(method.params) == 1
+    assert method.params[0] == ("self", "int")
+
+
+def test_vararg_with_params():
+    source = '''class Hero(Entity):
+    def sum(self, base: int, *numbers):
+        self.total = base'''
+    ast = Parser(tokenize(source)).parse()
+    method = ast.statements[0].methods[0]
+    assert method.vararg == "numbers"
+    assert method.params == [("self", "int"), ("base", "int")]
+
+
+def test_constructor_call():
+    source = 'self.hero = Hero("Артур", 100)'
+    ast = Parser(tokenize(source)).parse()
+    stmt = ast.statements[0]
+    assert isinstance(stmt, Assignment)
+    assert isinstance(stmt.value, FunCall)
+    assert stmt.value.name == "Hero"
+    assert len(stmt.value.args) == 2
+
+
+def test_constructor_no_args():
+    source = 'self.hero = Hero()'
+    ast = Parser(tokenize(source)).parse()
+    stmt = ast.statements[0]
+    assert isinstance(stmt.value, FunCall)
+    assert stmt.value.name == "Hero"
+    assert len(stmt.value.args) == 0
+
+
 if __name__ == "__main__":
     test_dict_def(); test_multiple_dicts(); test_nested_dict(); test_list()
     test_class_def(); test_class_with_method(); test_class_with_multiple_methods()
@@ -346,4 +404,7 @@ if __name__ == "__main__":
     test_class_without_parent(); test_nested_while(); test_nested_if_else()
     test_print_statement(); test_assert_statement()
     test_logical_and_or(); test_null_in_expression()
+    test_lambda_no_params(); test_lambda_with_params()
+    test_vararg(); test_vararg_with_params()
+    test_constructor_call(); test_constructor_no_args()
     print("✓ Все тесты парсера пройдены!")

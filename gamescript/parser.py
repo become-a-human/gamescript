@@ -79,7 +79,9 @@ class Parser:
         parts = [self.expect(TokenType.IDENT).value]
         while self.peek().type == TokenType.DOT:
             self.advance()
-            parts.append(self.expect(TokenType.IDENT).value)
+            # После точки разрешаем любое слово (включая ключевые)
+            t = self.advance()
+            parts.append(t.value)
         full_name = '.'.join(parts)
         t = self.peek()
         if t.type in (TokenType.PLUS_PLUS, TokenType.MINUS_MINUS):
@@ -133,6 +135,11 @@ class Parser:
         elif t.type in (TokenType.INT, TokenType.FLOAT, TokenType.STR,
                         TokenType.BOOL, TokenType.LIST, TokenType.DICT):
             return self._parse_type_call()
+        elif t.type == TokenType.LBRACKET:
+            return self._parse_list()
+        elif t.type == TokenType.IDENT:
+            self.advance()
+            return Identifier(t.value)
         else:
             raise ParseError(f"Неожиданный токен в значении: {t.type.value}", t.line, t.col)
 
@@ -203,7 +210,9 @@ class Parser:
         name = self.expect(TokenType.IDENT).value
         self.expect(TokenType.LPAREN)
         params = []
-        if self.peek().type != TokenType.RPAREN:
+        vararg = None
+        
+        if self.peek().type != TokenType.RPAREN and self.peek().type != TokenType.STAR:
             pname = self.expect(TokenType.IDENT).value
             ptype = 'int'
             if self.peek().type == TokenType.COLON:
@@ -214,6 +223,8 @@ class Parser:
             params.append((pname, ptype))
             while self.peek().type == TokenType.COMMA:
                 self.advance()
+                if self.peek().type == TokenType.STAR:
+                    break
                 pname = self.expect(TokenType.IDENT).value
                 ptype = 'int'
                 if self.peek().type == TokenType.COLON:
@@ -222,10 +233,15 @@ class Parser:
                     if t.type in (TokenType.IDENT, TokenType.INT, TokenType.FLOAT, TokenType.STR, TokenType.BOOL):
                         ptype = self.advance().value
                 params.append((pname, ptype))
+        
+        if self.peek().type == TokenType.STAR:
+            self.advance()
+            vararg = self.expect(TokenType.IDENT).value
+        
         self.expect(TokenType.RPAREN)
         self.expect(TokenType.COLON)
         body = self._parse_block()
-        return MethodDef(name, params, body)
+        return MethodDef(name, params, vararg, body)
     
     def _parse_if(self, skip_if: bool = False) -> IfStmt:
         if not skip_if:
@@ -267,7 +283,43 @@ class Parser:
         if self.peek().type not in stop_tokens:
             return ReturnStmt(self._parse_expression())
         return ReturnStmt(None)
-
+    
+    def _parse_lambda(self) -> LambdaExpr:
+        self.expect(TokenType.FN)
+        params = []
+        if self.peek().type == TokenType.LPAREN:
+            self.advance()
+            if self.peek().type != TokenType.RPAREN:
+                pname = self.expect(TokenType.IDENT).value
+                ptype = 'int'
+                if self.peek().type == TokenType.COLON:
+                    self.advance()
+                    t = self.peek()
+                    if t.type in (TokenType.IDENT, TokenType.INT, TokenType.FLOAT, TokenType.STR, TokenType.BOOL):
+                        ptype = self.advance().value
+                params.append((pname, ptype))
+                while self.peek().type == TokenType.COMMA:
+                    self.advance()
+                    pname = self.expect(TokenType.IDENT).value
+                    ptype = 'int'
+                    if self.peek().type == TokenType.COLON:
+                        self.advance()
+                        t = self.peek()
+                        if t.type in (TokenType.IDENT, TokenType.INT, TokenType.FLOAT, TokenType.STR, TokenType.BOOL):
+                            ptype = self.advance().value
+                    params.append((pname, ptype))
+            self.expect(TokenType.RPAREN)
+        
+        self.expect(TokenType.COLON)
+        
+        # Однострочная или блок
+        if self.peek().type == TokenType.INDENT:
+            body = self._parse_block()
+        else:
+            body = [self._parse_expression()]
+        
+        return LambdaExpr(params, body)
+    
     def _parse_expression(self) -> ASTNode: return self._parse_logic()
 
     def _parse_logic(self) -> ASTNode:
@@ -308,10 +360,10 @@ class Parser:
         self.expect(TokenType.LBRACKET)
         elements = []
         if self.peek().type != TokenType.RBRACKET:
-            elements.append(self._parse_expression())
+            elements.append(self._parse_value())
             while self.peek().type == TokenType.COMMA:
                 self.advance()
-                elements.append(self._parse_expression())
+                elements.append(self._parse_value())
         self.expect(TokenType.RBRACKET)
         return ListLiteral(elements)
 
@@ -325,12 +377,23 @@ class Parser:
             return UnaryOp(op, expr)
         
         if t.type == TokenType.NOT: self.advance(); return UnaryOp('!', self._parse_primary())
-        if t.type == TokenType.IDENT:
+        elif t.type == TokenType.IDENT:
             self.advance()
             expr = Identifier(t.value)
             while self.peek().type == TokenType.DOT:
                 self.advance()
                 expr = FieldAccess(expr, self.expect(TokenType.IDENT).value)
+            # Вызов конструктора: ClassName()
+            if self.peek().type == TokenType.LPAREN:
+                self.advance()
+                args = []
+                if self.peek().type != TokenType.RPAREN:
+                    args.append(self._parse_expression())
+                    while self.peek().type == TokenType.COMMA:
+                        self.advance()
+                        args.append(self._parse_expression())
+                self.expect(TokenType.RPAREN)
+                return FunCall(expr.name if isinstance(expr, Identifier) else expr, args)
             return expr
         elif t.type == TokenType.NUMBER: self.advance(); return NumberLiteral(t.value)
         elif t.type == TokenType.STRING: self.advance(); return StringLiteral(t.value)
@@ -347,5 +410,7 @@ class Parser:
         elif t.type in (TokenType.INT, TokenType.FLOAT, TokenType.STR,
                         TokenType.BOOL, TokenType.LIST, TokenType.DICT):
             return self._parse_type_call()
+        elif t.type == TokenType.FN:
+            return self._parse_lambda()
         else:
             raise ParseError(f"Неожиданный токен в выражении: {t.type.value}", t.line, t.col)
