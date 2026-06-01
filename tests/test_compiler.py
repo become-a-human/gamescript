@@ -268,6 +268,23 @@ def test_compile_constructor_no_args():
     assert 'new Hero()' in cpp
 
 
+def test_compile_file_operations():
+    cpp = compile_text('''class Hero(Entity):
+    def save(self):
+        f = open("save.txt", "out")
+        write(f, self.name)
+        close(f)''')
+    assert 'std::fstream' in cpp
+    assert 'std::ios::out' in cpp
+
+
+def test_compile_math():
+    cpp = compile_text('class Calc(System):\n    def calc(self, x: int):\n        self.r = sqrt(x)\n        self.s = sin(x)')
+    assert 'sqrt(x)' in cpp
+    assert 'sin(x)' in cpp
+    assert 'new sqrt' not in cpp
+
+
 if __name__ == "__main__":
     test_simple_compile(); test_compile_with_load()
     test_compile_with_optional_missing(); test_compile_with_optional_present()
@@ -288,4 +305,6 @@ if __name__ == "__main__":
     test_compile_lambda()
     test_compile_vararg()
     test_compile_constructor(); test_compile_constructor_no_args()
+    test_compile_file_operations()
+    test_compile_math()
     print("✓ Все тесты компилятора пройдены!")

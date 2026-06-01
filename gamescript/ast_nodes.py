@@ -165,3 +165,21 @@ class ListLiteral(ASTNode):
 class LambdaExpr(ASTNode):
     params: List[tuple] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
+
+@dataclass
+class FileOpen(ASTNode):
+    filename: ASTNode
+    mode: str
+
+@dataclass
+class FileRead(ASTNode):
+    file: ASTNode
+
+@dataclass
+class FileWrite(ASTNode):
+    file: ASTNode
+    content: ASTNode
+
+@dataclass
+class FileClose(ASTNode):
+    file: ASTNode

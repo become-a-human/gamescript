@@ -38,6 +38,10 @@ class Lexer:
         'not': TokenType.NOT,
         'elif': TokenType.ELIF,
         'fn': TokenType.FN,
+        'open': TokenType.OPEN,
+        'read': TokenType.READ,
+        'write': TokenType.WRITE,
+        'close': TokenType.CLOSE,
     }
 
     def __init__(self, source: str):

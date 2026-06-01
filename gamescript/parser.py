@@ -61,6 +61,10 @@ class Parser:
         elif t.type == TokenType.PASS: self.advance(); return None
         elif t.type == TokenType.PRINT: return self._parse_print()
         elif t.type == TokenType.ASSERT: return self._parse_assert()
+        elif t.type == TokenType.OPEN: return self._parse_file_open()
+        elif t.type == TokenType.READ: return self._parse_file_read()
+        elif t.type == TokenType.WRITE: return self._parse_file_write()
+        elif t.type == TokenType.CLOSE: return self._parse_file_close()
         else: return self._parse_expression()
 
     def _parse_block(self) -> List[ASTNode]:
@@ -86,6 +90,17 @@ class Parser:
         t = self.peek()
         if t.type in (TokenType.PLUS_PLUS, TokenType.MINUS_MINUS):
             return CompoundAssignment(full_name, self.advance().value, NumberLiteral(1))
+        # Вызов функции без присваивания: name(args)
+        if t.type == TokenType.LPAREN:
+            self.advance()
+            args = []
+            if self.peek().type != TokenType.RPAREN:
+                args.append(self._parse_expression())
+                while self.peek().type == TokenType.COMMA:
+                    self.advance()
+                    args.append(self._parse_expression())
+            self.expect(TokenType.RPAREN)
+            return FunCall(full_name, args)
         if t.type == TokenType.COLON:
             self.advance()
             method = self.expect(TokenType.IDENT).value
@@ -321,7 +336,39 @@ class Parser:
         return LambdaExpr(params, body)
     
     def _parse_expression(self) -> ASTNode: return self._parse_logic()
-
+    
+    def _parse_file_open(self) -> FileOpen:
+        self.expect(TokenType.OPEN)
+        self.expect(TokenType.LPAREN)
+        filename = self._parse_expression()
+        self.expect(TokenType.COMMA)
+        mode = self.expect(TokenType.STRING).value
+        self.expect(TokenType.RPAREN)
+        return FileOpen(filename, mode)
+    
+    def _parse_file_read(self) -> FileRead:
+        self.expect(TokenType.READ)
+        self.expect(TokenType.LPAREN)
+        file = self._parse_expression()
+        self.expect(TokenType.RPAREN)
+        return FileRead(file)
+    
+    def _parse_file_write(self) -> FileWrite:
+        self.expect(TokenType.WRITE)
+        self.expect(TokenType.LPAREN)
+        file = self._parse_expression()
+        self.expect(TokenType.COMMA)
+        content = self._parse_expression()
+        self.expect(TokenType.RPAREN)
+        return FileWrite(file, content)
+    
+    def _parse_file_close(self) -> FileClose:
+        self.expect(TokenType.CLOSE)
+        self.expect(TokenType.LPAREN)
+        file = self._parse_expression()
+        self.expect(TokenType.RPAREN)
+        return FileClose(file)
+    
     def _parse_logic(self) -> ASTNode:
         left = self._parse_comparison()
         while self.peek().type in (TokenType.AND, TokenType.OR):
@@ -412,5 +459,13 @@ class Parser:
             return self._parse_type_call()
         elif t.type == TokenType.FN:
             return self._parse_lambda()
+        elif t.type == TokenType.OPEN:
+            return self._parse_file_open()
+        elif t.type == TokenType.READ:
+            return self._parse_file_read()
+        elif t.type == TokenType.WRITE:
+            return self._parse_file_write()
+        elif t.type == TokenType.CLOSE:
+            return self._parse_file_close()
         else:
             raise ParseError(f"Неожиданный токен в выражении: {t.type.value}", t.line, t.col)

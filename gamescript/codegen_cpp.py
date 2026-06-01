@@ -10,7 +10,6 @@ from .ast_nodes import *
 BUILTIN_LIBS = {
     'math': '<cmath>',
     'random': '<random>',
-    'time': '<chrono>',
     'os': '<filesystem>',
     'sys': '<iostream>',
     'json': '<nlohmann/json.hpp>',
@@ -18,7 +17,12 @@ BUILTIN_LIBS = {
     'collections': '<map>',
     'sdl2': '<SDL2/SDL.h>',
     'sdl2_image': '<SDL2/SDL_image.h>',
+    'time': '<chrono>',
+    'thread': '<thread>',
+    'sdl_mixer': '<SDL2/SDL_mixer.h>',
 }
+
+BUILTIN_FUNCTIONS = {'sqrt', 'sin', 'cos', 'tan', 'abs', 'pow', 'random', 'time', 'delay', 'play_sound', 'play_music', 'stop_music',}
 
 
 class CodeGenError(Exception):
@@ -391,7 +395,11 @@ class CppCodeGen:
         if stmt is None:
             return f'{pad};'
         if isinstance(stmt, Assignment):
-            return f'{pad}{stmt.name.replace("self.", "this->")} = {self._expr_to_cpp(stmt.value)};'
+            name = stmt.name.replace('self.', 'this->')
+            if isinstance(stmt.value, FileOpen):
+                self._used_std.add('fstream')
+                return f'{pad}std::fstream {name}("{self._expr_to_cpp(stmt.value.filename)}", std::ios::{stmt.value.mode});'
+            return f'{pad}{name} = {self._expr_to_cpp(stmt.value)};'
         elif isinstance(stmt, IfStmt):
             return self._generate_if(stmt, indent)
         elif isinstance(stmt, WhileStmt):
@@ -409,6 +417,9 @@ class CppCodeGen:
             if obj == 'self': obj = 'this'
             return f'{pad}{obj}->{stmt.method}({", ".join(self._expr_to_cpp(a) for a in stmt.args)});'
         elif isinstance(stmt, FunCall):
+            if stmt.name in BUILTIN_FUNCTIONS:
+                args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
+                return f'{pad}{stmt.name}({args_str});'
             args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
             return f'{pad}new {stmt.name}({args_str});'
         elif isinstance(stmt, DictDef):
@@ -431,6 +442,15 @@ class CppCodeGen:
                 name = self._expr_to_cpp(stmt.expr).replace('self.', 'this->')
                 return f'{pad}{stmt.op}{name};'
             return f'{pad}{stmt.op}{self._expr_to_cpp(stmt.expr)};'
+        elif isinstance(stmt, FileOpen):
+            self._used_std.add('fstream')
+            return f'{pad}std::fstream {stmt.file}("{self._expr_to_cpp(stmt.filename)}", std::ios::{stmt.mode});'
+        elif isinstance(stmt, FileRead):
+            return f'{pad}std::getline({stmt.file}, {self._expr_to_cpp(stmt.content)});'
+        elif isinstance(stmt, FileWrite):
+            return f'{pad}{stmt.file} << {self._expr_to_cpp(stmt.content)};'
+        elif isinstance(stmt, FileClose):
+            return f'{pad}{stmt.file}.close();'
         return f'{pad}// TODO: {type(stmt).__name__}'
 
     def _generate_if(self, stmt: IfStmt, indent: int = 2) -> str:
@@ -483,6 +503,8 @@ class CppCodeGen:
             if obj == 'self': obj = 'this'
             return f'{obj}->{expr.method}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
         elif isinstance(expr, FunCall):
+            if expr.name in BUILTIN_FUNCTIONS:
+                return f'{expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
             return f'new {expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
         elif isinstance(expr, TypeCall):
             return self._type_call_to_cpp(expr)[1]

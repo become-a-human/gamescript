@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.6.0 (2026-06-01)
+
+### Добавлено
+- Файловые операции: `open()`, `read()`, `write()`, `close()`
+- Математика: `sqrt()`, `sin()`, `cos()`, `tan()`, `abs()`, `pow()`
+- Случайные числа: `random()`
+- Время и таймеры: `time()`, `delay()`
+- Столкновения (AABB): `collision.gs`
+- Звук: `play_sound()`, `play_music()`, `stop_music()` через SDL_mixer
+- Вызов функций без присваивания: `stop_music()`
+- `BUILTIN_FUNCTIONS` — список встроенных функций
+- Примеры: `math.gs`, `random.gs`, `timer.gs`, `collision.gs`, `audio.gs`
+
+### Исправлено
+- `FunCall` для встроенных функций генерирует вызов, а не `new`
+- `_parse_ident_stmt` поддерживает вызов `name(args)` без присваивания
+
 ## v0.5.0 (2026-05-31)
 
 ### Добавлено

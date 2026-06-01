@@ -100,6 +100,11 @@ class TokenType(Enum):
     INDENT = "INDENT"          # indent
     DEDENT = "DEDENT"          # dedent
     NEWLINE = "NEWLINE"        # newline
+    
+    OPEN = "OPEN"
+    READ = "READ"
+    WRITE = "WRITE"
+    CLOSE = "CLOSE"
 
 @dataclass
 class Token:
