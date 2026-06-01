@@ -1,58 +1,97 @@
 """
-Генератор C++ кода из AST.
+Генератор C++ кода из AST GameScript.
+
+Обходит AST и генерирует валидный C++17 код.
+Словари → struct, классы → class, методы → функции.
 """
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from pathlib import Path
 from .ast_nodes import *
 
 
+# ===== Конфигурация =====
+
+# Встроенные библиотеки GameScript → C++ заголовки
 BUILTIN_LIBS = {
     'math': '<cmath>',
     'random': '<random>',
+    'time': '<chrono>',
     'os': '<filesystem>',
     'sys': '<iostream>',
     'json': '<nlohmann/json.hpp>',
     're': '<regex>',
     'collections': '<map>',
+    'runtime': '"runtime.h"',
     'sdl2': '<SDL2/SDL.h>',
     'sdl2_image': '<SDL2/SDL_image.h>',
-    'time': '<chrono>',
-    'thread': '<thread>',
     'sdl_mixer': '<SDL2/SDL_mixer.h>',
     'curl': '<curl/curl.h>',
-    'socket': '<sys/socket.h>',
-    'netdb': '<netdb.h>',
-    'curl': '<curl/curl.h>',
     'sqlite': '<sqlite3.h>',
+    'thread': '<thread>',
+    'chrono': '<chrono>',
 }
 
-BUILTIN_FUNCTIONS = {'sqrt', 'sin', 'cos', 'tan', 'abs', 'pow', 'random', 'time', 'delay', 'play_sound', 'play_music', 'stop_music', 'http_get', 'http_post', 'socket_connect', 'socket_send', 'socket_recv', 'db_open', 'db_exec', 'db_close', 'thread_sleep',}
+# Встроенные функции (генерируются как вызов, а не new)
+BUILTIN_FUNCTIONS = {
+    'sqrt', 'sin', 'cos', 'tan', 'abs', 'pow',
+    'random', 'gs_time', 'gs_delay',
+    'play_sound', 'play_music', 'stop_music',
+    'http_get', 'http_post',
+    'socket_connect', 'socket_send', 'socket_recv',
+    'db_open', 'db_exec', 'db_close',
+    'thread_sleep',
+}
 
 
 class CodeGenError(Exception):
+    """Ошибка генерации C++ кода."""
     pass
 
 
 class CppCodeGen:
+    """
+    Генератор C++ кода из AST.
+    
+    Использование:
+        gen = CppCodeGen()
+        gen.add_load(stmt)       # для каждого @load
+        cpp = gen.generate(ast)  # генерация .cpp
+        h = gen.generate_header(ast)  # генерация .h
+    """
+
     def __init__(self, base_path: Path = None):
-        self.base_path = base_path or Path.cwd()
-        self.includes: List[str] = []
-        self.globals: List[str] = []
-        self.classes: List[str] = []
-        self._used_std: set = set()
-        self._field_types: dict = {}  # имя_класса -> {имя_поля: тип}
+        self._local_vars: set = set()  # локальные переменные
+        self.includes: List[str] = []   # #include "..."
+        self.globals: List[str] = []    # struct и const
+        self.classes: List[str] = []    # class определения
+        self._used_std: set = set()     # нужные std:: заголовки
+        self._field_types: dict = {}    # для проверки типов
         self._warnings: List[str] = []
+        self.base_path = base_path or Path.cwd()
+
+    # ===== Импорты =====
 
     def add_load(self, stmt: LoadStmt):
+        """
+        Добавляет @load в вывод.
+        @load "file"       → #include "file.h"
+        @load? "file"      → #ifdef HAS_FILE / #include "file.h" / #endif
+        @load "file" like "X" → #include "file.h" + using X = file;
+        @load "file" like "*" → #include "file.h" + using namespace file;
+        """
         stem = stmt.filename.rsplit('.', 1)[0].split('/')[-1]
+
         if stem in BUILTIN_LIBS:
+            header = BUILTIN_LIBS[stem]
             if stmt.optional:
                 self.includes.append(f'#ifdef HAS_{stem.upper()}')
-                self.includes.append(f'#include {BUILTIN_LIBS[stem]}')
+                self.includes.append(f'#include {header}')
                 self.includes.append(f'#endif')
             else:
-                self.includes.append(f'#include {BUILTIN_LIBS[stem]}')
+                self.includes.append(f'#include {header}')
+            if stmt.alias and stmt.alias != '*':
+                self.includes.append(f'namespace {stmt.alias} = {stem};')
         else:
             if stmt.optional:
                 self.includes.append(f'#ifdef HAS_{stem.upper()}')
@@ -60,20 +99,657 @@ class CppCodeGen:
                 self.includes.append(f'#endif')
             else:
                 self.includes.append(f'#include "{stem}.h"')
+            if stmt.alias:
+                if stmt.alias == '*':
+                    self.includes.append(f'using namespace {stem};')
+                else:
+                    self.includes.append(f'using {stmt.alias} = {stem};')
+
+    # ===== Главные методы генерации =====
+
+    def generate(self, ast: Program) -> str:
+        """Генерирует .cpp файл."""
+        for stmt in ast.statements:
+            if isinstance(stmt, DictDef):
+                self._generate_dict_def(stmt)
+            elif isinstance(stmt, ClassDef):
+                self._generate_class_def(stmt)
+        return self._assemble(is_header=False)
+
+    def generate_header(self, ast: Program) -> str:
+        """Генерирует .h файл (только объявления)."""
+        for stmt in ast.statements:
+            if isinstance(stmt, DictDef):
+                self._generate_dict_def(stmt)
+            elif isinstance(stmt, ClassDef):
+                self._generate_class_decl(stmt)
+        return self._assemble(is_header=True)
+
+    def generate_main(self, ast: Program) -> str:
+        """Генерирует int main() из __main__.gs."""
+        main_class = None
+        for stmt in ast.statements:
+            if isinstance(stmt, ClassDef) and stmt.name == 'Main':
+                main_class = stmt
+                break
+
+        if not main_class:
+            raise CodeGenError("Не найден класс Main в __main__.gs")
+
+        body_lines = []
+        for method in main_class.methods:
+            for stmt in method.body:
+                line = self._generate_statement(stmt, indent=1)
+                line = line.replace('this->', 'main.')
+                body_lines.append(line)
+
+        body = '\n'.join(body_lines)
+
+        return f'''int main() {{
+    Main main;
+{body}
+    return 0;
+}}'''
+
+    # ===== Сборка =====
+
+    def _assemble(self, is_header: bool = True) -> str:
+        """Собирает все части в один файл."""
+        parts = []
+
+        if is_header:
+            parts.append('#pragma once')
+            parts.append('')
+
+        for inc in self.includes:
+            parts.append(inc)
+        if self.includes:
+            parts.append('')
+
+        for header in sorted(self._used_std):
+            parts.append(f'#include <{header}>')
+        if self._used_std:
+            parts.append('')
+
+        if self.globals:
+            parts.append('// ========================================')
+            parts.append('// ГЛОБАЛЬНЫЕ ДАННЫЕ (сгенерировано GameScript)')
+            parts.append('// ========================================')
+            parts.append('')
+            parts.extend(self.globals)
+
+        if self.classes:
+            parts.append('// ========================================')
+            parts.append('// КЛАССЫ (сгенерировано GameScript)')
+            parts.append('// ========================================')
+            parts.append('')
+            parts.extend(self.classes)
+
+        return '\n'.join(parts)
+
+    # ===== Словари → struct =====
+
+    def _generate_dict_def(self, node: DictDef):
+        """Генерирует C++ struct и const экземпляр из DictDef."""
+        if not isinstance(node.value, DictLiteral):
+            raise CodeGenError(f"DictDef {node.name}: значение должно быть словарём")
+
+        fields = []
+        values = []
+        for key, val in node.value.pairs:
+            cpp_type, cpp_val = self._value_to_cpp(val)
+            fields.append(f'    {cpp_type} {key};')
+            values.append(f'    .{key} = {cpp_val},')
+
+        struct_name = f'{node.name}_t'
+
+        self.globals.append(f'struct {struct_name} {{')
+        self.globals.extend(fields)
+        self.globals.append('};')
+        self.globals.append('')
+        self.globals.append(f'const {struct_name} {node.name} = {{')
+        self.globals.extend(values)
+        self.globals.append('};')
+        self.globals.append('')
+
+    # ===== Значения → C++ =====
+
+    def _value_to_cpp(self, node: ASTNode) -> Tuple[str, str]:
+        """
+        Конвертирует AST-значение в пару (C++ тип, C++ значение-строка).
+        """
+        if isinstance(node, StringLiteral):
+            self._use_std('string')
+            return 'std::string', f'"{node.value}"'
+
+        elif isinstance(node, NumberLiteral):
+            if isinstance(node.value, float):
+                return 'float', f'{node.value}f'
+            return 'int', str(node.value)
+
+        elif isinstance(node, BoolLiteral):
+            return 'bool', 'true' if node.value else 'false'
+
+        elif isinstance(node, NoneLiteral):
+            return 'std::nullptr_t', 'nullptr'
+
+        elif isinstance(node, TypeCall):
+            return self._type_call_to_cpp(node)
+
+        elif isinstance(node, DictLiteral):
+            return self._inline_dict_to_cpp(node)
+
+        elif isinstance(node, ListLiteral):
+            self._use_std('vector')
+            if node.elements:
+                first_type, _ = self._value_to_cpp(node.elements[0])
+                elements = ', '.join(self._value_to_cpp(e)[1] for e in node.elements)
+                return f'std::vector<{first_type}>', '{' + elements + '}'
+            return 'std::vector<std::string>', '{}'
+
+        else:
+            raise CodeGenError(f"Неизвестный тип значения: {type(node).__name__}")
+
+    def _type_call_to_cpp(self, node: TypeCall) -> Tuple[str, str]:
+        """int(100), str("hello"), list(...), dict(...)"""
+        if node.typename == 'int':
+            return 'int', self._value_to_cpp(node.args[0])[1]
+
+        elif node.typename == 'float':
+            val = self._value_to_cpp(node.args[0])[1]
+            if not val.endswith('f'):
+                val += 'f'
+            return 'float', val
+
+        elif node.typename == 'str':
+            self._use_std('string')
+            return 'std::string', self._value_to_cpp(node.args[0])[1]
+
+        elif node.typename == 'bool':
+            return 'bool', self._value_to_cpp(node.args[0])[1]
+
+        elif node.typename == 'list':
+            self._use_std('vector')
+            vals = ', '.join(self._value_to_cpp(a)[1] for a in node.args)
+            return 'std::vector<std::string>', '{' + vals + '}'
+
+        elif node.typename == 'dict':
+            self._use_std('map')
+            self._use_std('any')
+            pairs = []
+            for i in range(0, len(node.args), 2):
+                k = self._value_to_cpp(node.args[i])[1]
+                v = self._value_to_cpp(node.args[i+1])[1]
+                pairs.append(f'{{{k}, {v}}}')
+            return 'std::map<std::string, std::any>', '{' + ', '.join(pairs) + '}'
+
+        else:
+            raise CodeGenError(f"Неизвестный тип: {node.typename}")
+
+    def _inline_dict_to_cpp(self, node: DictLiteral) -> Tuple[str, str]:
+        """Вложенный словарь — создаёт анонимную struct."""
+        fields = []
+        vals = []
+        for key, val in node.pairs:
+            cpp_type, cpp_val = self._value_to_cpp(val)
+            fields.append(f'{cpp_type} {key};')
+            vals.append(f'.{key} = {cpp_val}')
+
+        fields_str = ' '.join(fields)
+        vals_str = ', '.join(vals)
+    
+        code = (
+            f'[](){{\n'
+            f'        struct {{ {fields_str} }} tmp{{{vals_str}}};\n'
+            f'        return tmp;\n'
+            f'    }}()'
+        )
+        return 'std::map<std::string, std::any>', code
+
+    def _use_std(self, header: str):
+        """Отмечает, что стандартный заголовок используется."""
+        self._used_std.add(header)
+
+    # ===== Классы → C++ class =====
+
+    def _generate_class_def(self, node: ClassDef):
+        """Генерирует C++ class с полями и методами."""
+        self._generate_class(node, header_only=False)
+
+    def _generate_class_decl(self, node: ClassDef):
+        """Генерирует объявление класса (для .h файла)."""
+        self._generate_class(node, header_only=True)
+
+    def _generate_class(self, node: ClassDef, header_only: bool = False):
+        """Общая логика генерации класса."""
+        lines = []
+        fields = {}
+
+        # Собираем поля из self.xxx = ... в методах
+        for method in node.methods:
+            self._collect_fields(method.body, fields, method.params)
+
+        # Загружаем поля родителя (кроме Entity/System — они в runtime)
+        parent_field_names = set()
+        if node.parent in ('Entity', 'System'):
+            base_fields = self._load_base_class(node.parent)
+            parent_field_names = set(base_fields.keys())
+        elif node.parent:
+            parent_fields = self._get_parent_fields(node.parent)
+            parent_field_names = set(parent_fields.keys())
+
+        # Только свои поля
+        own_fields = {k: v for k, v in fields.items() if k not in parent_field_names}
+
+        # Объявление класса
+        if node.parent:
+            lines.append(f'class {node.name} : public {node.parent} {{')
+        else:
+            lines.append(f'class {node.name} {{')
+        lines.append('public:')
+
+        if node.doc:
+            lines.append(f'    // {node.doc}')
+
+        # Поля
+        type_map = {
+            'int': 'int', 'float': 'float', 'str': 'std::string',
+            'bool': 'bool', 'null': 'std::nullptr_t',
+        }
+        for fname, ftype in own_fields.items():
+            if ftype in type_map:
+                cpp_type = type_map[ftype]
+            elif ftype.startswith('vector'):
+                inner = ftype.replace('vector<', '').replace('>', '')
+                cpp_type = f'std::vector<{type_map.get(inner, inner)}>'
+            elif ftype == 'map':
+                cpp_type = 'std::map<std::string, std::any>'
+            else:
+                cpp_type = f'{ftype}*'
+            lines.append(f'    {cpp_type} {fname};')
+
+        if own_fields:
+            lines.append('')
+
+        # Отмечаем используемые std-типы
+        for fname, ftype in own_fields.items():
+            if ftype == 'str':
+                self._used_std.add('string')
+            elif ftype.startswith('vector'):
+                self._used_std.add('vector')
+            elif ftype == 'map':
+                self._used_std.add('map')
+                self._used_std.add('any')
+
+        # Конструктор (только для не-Entity)
+        if node.parent != 'Entity' and own_fields:
+            init_list = [f'{fname}({self._default_value(ftype)})' for fname, ftype in own_fields.items()]
+            lines.append(f'    {node.name}() : {", ".join(init_list)} {{}}')
+            lines.append('')
+
+        # Методы (всегда с телами — inline в .h и реализация в .cpp)
+        if node.methods:
+            for method in node.methods:
+                lines.extend(self._generate_method(method))
+        else:
+            lines.append('    // Пустой класс')
+
+        lines.append('};')
+        lines.append('')
+        self.classes.extend(lines)
+
+    # ===== Методы =====
+
+    def _generate_method(self, method: MethodDef) -> List[str]:
+        """Генерирует определение метода."""
+        self._local_vars = set()  # сбрасываем для нового метода
+        lines = []
+        real_params = [(n, t) for n, t in method.params if n != 'self']
+        type_map = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool'}
+        params_str = ', '.join(f'{type_map.get(t, t)} {n}' for n, t in real_params)
+        if method.vararg:
+            params_str += f', std::vector<int> {method.vararg}'
+
+        lines.append(f'    void {method.name}({params_str}) {{')
+        if method.body:
+            for stmt in method.body:
+                lines.append(self._generate_statement(stmt, indent=2))
+        else:
+            lines.append('        // (пустое тело)')
+        lines.append('    }')
+        lines.append('')
+        return lines
+
+    # ===== Инструкции =====
+
+    def _generate_statement(self, stmt, indent: int = 2) -> str:
+        """Генерирует одну C++ инструкцию с правильным отступом."""
+        pad = '    ' * indent
+
+        if stmt is None:
+            return f'{pad};'
+
+        # Присваивание
+        if isinstance(stmt, Assignment):
+            name = stmt.name.replace('self.', 'this->')
+            if not stmt.name.startswith('self.') and stmt.name not in self._local_vars:
+                self._local_vars.add(stmt.name)
+                cpp_type = self._infer_type(stmt.value)
+                type_map = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool'}
+                cpp_type = type_map.get(cpp_type, 'auto')
+                return f'{pad}{cpp_type} {name} = {self._expr_to_cpp(stmt.value)};'
+            if isinstance(stmt.value, FileOpen):
+                self._used_std.add('fstream')
+                return f'{pad}std::fstream {name}("{self._expr_to_cpp(stmt.value.filename)}", std::ios::{stmt.value.mode});'
+            return f'{pad}{name} = {self._expr_to_cpp(stmt.value)};'
+
+        # Составное присваивание
+        elif isinstance(stmt, CompoundAssignment):
+            name = stmt.name.replace('self.', 'this->')
+            if stmt.op == '++':
+                return f'{pad}{name}++;'
+            elif stmt.op == '--':
+                return f'{pad}{name}--;'
+            return f'{pad}{name} {stmt.op} {self._expr_to_cpp(stmt.value)};'
+
+        # Условный оператор
+        elif isinstance(stmt, IfStmt):
+            return self._generate_if(stmt, indent)
+
+        # Циклы
+        elif isinstance(stmt, WhileStmt):
+            return self._generate_while(stmt, indent)
+        elif isinstance(stmt, ForStmt):
+            return self._generate_for(stmt, indent)
+
+        # Возврат
+        elif isinstance(stmt, ReturnStmt):
+            if stmt.value:
+                return f'{pad}return {self._expr_to_cpp(stmt.value)};'
+            return f'{pad}return;'
+
+        # continue / break
+        elif isinstance(stmt, ContinueStmt):
+            return f'{pad}continue;'
+        elif isinstance(stmt, BreakStmt):
+            return f'{pad}break;'
+
+        # Вызов метода
+        elif isinstance(stmt, MethodCall):
+            obj = self._expr_to_cpp(stmt.obj)
+            if obj == 'self':
+                obj = 'this'
+            args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
+            return f'{pad}{obj}->{stmt.method}({args_str});'
+
+        # Вызов функции или конструктора
+        elif isinstance(stmt, FunCall):
+            if stmt.name in BUILTIN_FUNCTIONS:
+                args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
+                return f'{pad}{stmt.name}({args_str});'
+            args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
+            return f'{pad}new {stmt.name}({args_str});'
+
+        # Унарные операции
+        elif isinstance(stmt, UnaryOp):
+            if stmt.op in ('++', '--'):
+                name = self._expr_to_cpp(stmt.expr).replace('self.', 'this->')
+                return f'{pad}{stmt.op}{name};'
+            return f'{pad}{stmt.op}{self._expr_to_cpp(stmt.expr)};'
+
+        # print
+        elif isinstance(stmt, PrintStmt):
+            self._use_std('iostream')
+            return f'{pad}std::cout << {self._expr_to_cpp(stmt.value)} << std::endl;'
+
+        # assert
+        elif isinstance(stmt, AssertStmt):
+            self._use_std('cassert')
+            return f'{pad}assert({self._expr_to_cpp(stmt.condition)});'
+
+        # Файловые операции
+        elif isinstance(stmt, FileWrite):
+            return f'{pad}{self._expr_to_cpp(stmt.file)} << {self._expr_to_cpp(stmt.content)};'
+        elif isinstance(stmt, FileClose):
+            return f'{pad}{self._expr_to_cpp(stmt.file)}.close();'
+
+        # Словарь (внутри метода)
+        elif isinstance(stmt, DictDef):
+            return f'{pad}// DictDef: {stmt.name}'
+
+        return f'{pad}// TODO: {type(stmt).__name__}'
+
+    def _collect_fields(self, stmts: List[ASTNode], fields: dict, method_params=None) -> dict:
+        """Рекурсивно собирает поля из self.xxx = ..."""
+        for stmt in stmts:
+            if isinstance(stmt, Assignment) and stmt.name.startswith('self.'):
+                name = stmt.name.replace('self.', '')
+                if name not in fields:
+                    fields[name] = self._infer_type(stmt.value, method_params)
+            elif isinstance(stmt, CompoundAssignment) and stmt.name.startswith('self.'):
+                name = stmt.name.replace('self.', '')
+                if name not in fields:
+                    fields[name] = 'int'
+            elif isinstance(stmt, IfStmt):
+                self._collect_fields(stmt.body, fields, method_params)
+                if stmt.else_body:
+                    self._collect_fields(stmt.else_body, fields, method_params)
+            elif isinstance(stmt, WhileStmt):
+                self._collect_fields(stmt.body, fields, method_params)
+            elif isinstance(stmt, ForStmt):
+                self._collect_fields(stmt.body, fields, method_params)
+        return fields
+
+    # ===== Управляющие конструкции =====
+
+    def _generate_if(self, stmt: IfStmt, indent: int = 2) -> str:
+        """Генерирует if / else if / else с правильными отступами."""
+        pad = '    ' * indent
+        result = f'{pad}if ({self._expr_to_cpp(stmt.condition)}) {{\n'
+        for s in stmt.body:
+            result += self._generate_statement(s, indent + 1) + '\n'
+        result += f'{pad}}}'
+
+        if stmt.else_body:
+            if len(stmt.else_body) == 1 and isinstance(stmt.else_body[0], IfStmt):
+                # elif → else if
+                result += f' else {self._generate_if(stmt.else_body[0], indent)[len(pad):]}'
+            else:
+                result += f' else {{\n'
+                for s in stmt.else_body:
+                    result += self._generate_statement(s, indent + 1) + '\n'
+                result += f'{pad}}}'
+    
+        return result
+
+    def _generate_while(self, stmt: WhileStmt, indent: int = 2) -> str:
+        """Генерирует цикл while."""
+        pad = '    ' * indent
+        result = f'{pad}while ({self._expr_to_cpp(stmt.condition)}) {{\n'
+        for s in stmt.body:
+            result += self._generate_statement(s, indent + 1) + '\n'
+        result += f'{pad}}}'
+        return result
+
+    def _generate_for(self, stmt: ForStmt, indent: int = 2) -> str:
+        """Генерирует range-based цикл for."""
+        pad = '    ' * indent
+        result = f'{pad}for (auto& {stmt.var} : {self._expr_to_cpp(stmt.iterable)}) {{\n'
+        for s in stmt.body:
+            result += self._generate_statement(s, indent + 1) + '\n'
+        result += f'{pad}}}'
+        return result
+
+    # ===== Выражения → C++ =====
+
+    def _expr_to_cpp(self, expr) -> str:
+        """Превращает AST-выражение в C++ строку."""
+        if isinstance(expr, NumberLiteral):
+            return str(expr.value)
+
+        elif isinstance(expr, StringLiteral):
+            return f'"{expr.value}"'
+
+        elif isinstance(expr, BoolLiteral):
+            return 'true' if expr.value else 'false'
+
+        elif isinstance(expr, NoneLiteral):
+            return 'nullptr'
+
+        elif isinstance(expr, Identifier):
+            return expr.name
+
+        elif isinstance(expr, FieldAccess):
+            obj = self._expr_to_cpp(expr.obj)
+            if obj == 'self':
+                return f'this->{expr.field}'
+            return f'{obj}.{expr.field}'
+
+        elif isinstance(expr, BinaryOp):
+            op_map = {'and': '&&', 'or': '||'}
+            op = op_map.get(expr.op, expr.op)
+            return f'{self._expr_to_cpp(expr.left)} {op} {self._expr_to_cpp(expr.right)}'
+
+        elif isinstance(expr, UnaryOp):
+            if expr.op in ('++', '--'):
+                return f'{expr.op}{self._expr_to_cpp(expr.expr)}'
+            return f'{expr.op}{self._expr_to_cpp(expr.expr)}'
+
+        elif isinstance(expr, MethodCall):
+            obj = self._expr_to_cpp(expr.obj)
+            if obj == 'self':
+                obj = 'this'
+            args_str = ', '.join(self._expr_to_cpp(a) for a in expr.args)
+            return f'{obj}->{expr.method}({args_str})'
+
+        elif isinstance(expr, FunCall):
+            if expr.name in BUILTIN_FUNCTIONS:
+                return f'{expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
+            return f'new {expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
+
+        elif isinstance(expr, LambdaExpr):
+            params_str = ', '.join(f'int {n}' for n, t in expr.params)
+            if len(expr.body) == 1 and isinstance(expr.body[0], (ReturnStmt, Assignment)):
+                body_str = self._generate_statement(expr.body[0], indent=0).strip().rstrip(';')
+            else:
+                body_str = '; '.join(
+                    self._generate_statement(s, indent=0).strip()
+                    for s in expr.body
+                )
+            return f'[&]({params_str}) {{ {body_str} }}'
+
+        elif isinstance(expr, TypeCall):
+            return self._type_call_to_cpp(expr)[1]
+
+        elif isinstance(expr, DictLiteral):
+            return self._inline_dict_to_cpp(expr)[1]
+
+        elif isinstance(expr, ListLiteral):
+            elements = ', '.join(self._expr_to_cpp(e) for e in expr.elements)
+            return '{' + elements + '}'
+
+        elif isinstance(expr, FileOpen):
+            self._use_std('fstream')
+            return f'std::fstream("{self._expr_to_cpp(expr.filename)}", std::ios::{expr.mode})'
+
+        elif isinstance(expr, FileRead):
+            return f'std::getline({self._expr_to_cpp(expr.file)})'
+
+        return f'/* {type(expr).__name__} */'
+
+    # ===== Вывод типов =====
+
+    def _infer_type(self, value, method_params: List[tuple] = None) -> str:
+        """
+        Определяет тип значения для авто-полей класса.
+        Используется при генерации полей из self.xxx = ... в методах.
+        """
+        if isinstance(value, NumberLiteral):
+            return 'float' if isinstance(value.value, float) else 'int'
+
+        elif isinstance(value, StringLiteral):
+            return 'str'
+
+        elif isinstance(value, BoolLiteral):
+            return 'bool'
+
+        elif isinstance(value, NoneLiteral):
+            return 'null'
+
+        elif isinstance(value, TypeCall):
+            if value.typename == 'list':
+                if value.args:
+                    inner = self._infer_type(value.args[0], method_params)
+                    return f'vector<{inner}>'
+                return 'vector'
+            elif value.typename == 'dict':
+                return 'map'
+            return value.typename
+
+        elif isinstance(value, FieldAccess):
+            if value.field in ('name', 'title', 'description', 'image_path', 'sprite_path'):
+                return 'str'
+            return 'int'
+
+        elif isinstance(value, Identifier):
+            # Проверяем, не параметр ли это метода
+            if method_params:
+                for pname, ptype in method_params:
+                    if pname == value.name:
+                        return ptype
+            return value.name  # Имя класса
+
+        elif isinstance(value, BinaryOp):
+            return self._infer_type(value.left, method_params)
+
+        elif isinstance(value, ListLiteral):
+            if value.elements:
+                inner = self._infer_type(value.elements[0], method_params)
+                return f'vector<{inner}>'
+            return 'vector'
+
+        elif isinstance(value, FunCall):
+            if value.name in BUILTIN_FUNCTIONS:
+                return 'float'  # большинство математических функций возвращают float
+            return value.name
+
+        return 'int'
+
+    # ===== Вспомогательные методы =====
+
+    def _default_value(self, ftype: str) -> str:
+        """Возвращает значение по умолчанию для типа."""
+        if ftype == 'int':
+            return '0'
+        elif ftype == 'float':
+            return '0.0f'
+        elif ftype == 'str':
+            return '""'
+        elif ftype == 'bool':
+            return 'false'
+        elif ftype == 'null':
+            return 'nullptr'
+        elif ftype.startswith('vector'):
+            return ''
+        else:
+            return 'nullptr'
 
     def _load_base_class(self, parent_name: str) -> dict:
-        """Загружает поля базового класса из entity.gs или system.gs."""
+        """
+        Загружает поля базового класса из entity.gs или system.gs.
+        Используется при наследовании от Entity/System.
+        """
         base_file = f'{parent_name.lower()}.gs'
-        base_path = self.base_path / 'examples' / base_file
+        base_path = self.base_path / base_file
         if not base_path.exists():
             return {}
-        
+
         source = base_path.read_text(encoding='utf-8')
         from .lexer import Lexer
         from .parser import Parser
         tokens = Lexer(source).tokenize()
         ast = Parser(tokens).parse()
-        
+
         fields = {}
         for stmt in ast.statements:
             if isinstance(stmt, ClassDef) and stmt.name == parent_name:
@@ -85,250 +761,14 @@ class CppCodeGen:
                                 fields[name] = self._infer_type(s.value, method.params)
         return fields
 
-    def generate(self, ast: Program) -> str:
-        for stmt in ast.statements:
-            if isinstance(stmt, DictDef):
-                self._generate_dict_def(stmt)
-            elif isinstance(stmt, ClassDef):
-                self._generate_class_def(stmt)
-        return self._assemble(is_header=False)
-
-    def generate_main(self, ast: Program) -> str:
-        game_class = 'Game'
-        for stmt in ast.statements:
-            if isinstance(stmt, ClassDef) and stmt.parent == 'System':
-                game_class = stmt.name
-                break
-        
-        return f'''
-int main() {{
-    {game_class} game;
-    game.on_start();
-    
-    bool running = true;
-    while (running) {{
-        game.on_update();
-    }}
-    
-    return 0;
-}}
-'''
-
-    def _assemble(self, is_header: bool = True) -> str:
-        parts = []
-        if is_header:
-            parts.append('#pragma once')
-            parts.append('')
-        for inc in self.includes:
-            parts.append(inc)
-        if self.includes:
-            parts.append('')
-        for header in sorted(self._used_std):
-            parts.append(f'#include <{header}>')
-        if self._used_std:
-            parts.append('')
-        parts.append('// ========================================')
-        parts.append('// ГЛОБАЛЬНЫЕ ДАННЫЕ (сгенерировано GameScript)')
-        parts.append('// ========================================')
-        parts.append('')
-        parts.extend(self.globals)
-        parts.append('// ========================================')
-        parts.append('// КЛАССЫ (сгенерировано GameScript)')
-        parts.append('// ========================================')
-        parts.append('')
-        parts.extend(self.classes)
-        return '\n'.join(parts)
-
-    def generate_header(self, ast: Program) -> str:
-        for stmt in ast.statements:
-            if isinstance(stmt, DictDef):
-                self._generate_dict_def(stmt)
-            elif isinstance(stmt, ClassDef):
-                self._generate_class_decl(stmt)
-        return self._assemble()
-    
-    def _generate_class(self, node: ClassDef, header_only: bool = False):
-        lines = []
-        fields = {}
-        
-        for method in node.methods:
-            for stmt in method.body:
-                if isinstance(stmt, Assignment) and stmt.name.startswith('self.'):
-                    name = stmt.name.replace('self.', '')
-                    if name not in fields:
-                        fields[name] = self._infer_type(stmt.value, method.params)
-                elif isinstance(stmt, CompoundAssignment) and stmt.name.startswith('self.'):
-                    name = stmt.name.replace('self.', '')
-                    if name not in fields:
-                        fields[name] = 'int'
-        
-        # Загружаем поля из entity.gs / system.gs (но НЕ выводим их)
-        parent_field_names = set()
-        if node.parent in ('Entity', 'System'):
-            base_fields = self._load_base_class(node.parent)
-            parent_field_names = set(base_fields.keys())
-        elif node.parent:
-            parent_fields = self._get_parent_fields(node.parent)
-            parent_field_names = set(parent_fields.keys())
-        
-        # Выводим ТОЛЬКО свои поля (не родительские)
-        own_fields = {k: v for k, v in fields.items() if k not in parent_field_names}
-        
-        if node.parent:
-            lines.append(f'class {node.name} : public {node.parent} {{')
-        else:
-            lines.append(f'class {node.name} {{')
-        lines.append('public:')
-        if node.doc:
-            lines.append(f'    // {node.doc}')
-        
-        # Все поля для вывода: свои + родительские (родительские только не от Entity/System)
-        display_fields = dict(own_fields)
-        if node.parent and node.parent not in ('Entity', 'System'):
-            for pfield in parent_field_names:
-                if pfield not in display_fields:
-                    parent_type = parent_fields.get(pfield, 'int')
-                    display_fields[pfield] = parent_type
-        
-        type_map = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool', 'null': 'std::nullptr_t'}
-        for fname, ftype in display_fields.items():
-            if ftype in type_map:
-                cpp_type = type_map[ftype]
-            elif ftype.startswith('vector'):
-                inner = ftype.replace('vector<', '').replace('>', '')
-                cpp_type = f'std::vector<{type_map.get(inner, inner)}>'
-            elif ftype == 'map':
-                cpp_type = 'std::map<std::string, std::any>'
-            else:
-                cpp_type = f'{ftype}*'
-            lines.append(f'    {cpp_type} {fname};')
-        
-        if display_fields:
-            lines.append('')
-        
-        for fname, ftype in display_fields.items():
-            if ftype == 'str':
-                self._used_std.add('string')
-            elif ftype.startswith('vector'):
-                self._used_std.add('vector')
-            elif ftype == 'map':
-                self._used_std.add('map')
-                self._used_std.add('any')
-        
-        if node.parent and node.parent not in ('Entity', 'System'):
-            if own_fields:
-                init_list = [f'{fname}({self._default_value(ftype)})' for fname, ftype in own_fields.items()]
-                lines.append(f'    {node.name}() : {", ".join(init_list)} {{}}')
-                lines.append('')
-        
-        if node.methods:
-            for method in node.methods:
-                if header_only:
-                    real_params = [(n, t) for n, t in method.params if n != 'self']
-                    params_str = ', '.join(f'{type_map.get(t, t)} {n}' for n, t in real_params)
-                    lines.append(f'    void {method.name}({params_str});')
-                else:
-                    lines.extend(self._generate_method(method))
-        else:
-            lines.append('    // Пустой класс')
-        
-        lines.append('};')
-        lines.append('')
-        self.classes.extend(lines)
-    
-    def _generate_class_def(self, node: ClassDef):
-        self._generate_class(node, header_only=False)
-    
-    def _generate_class_decl(self, node: ClassDef):
-        self._generate_class(node, header_only=True)
-    
-    def _default_value(self, ftype: str) -> str:
-        if ftype == 'int': return '0'
-        elif ftype == 'float': return '0.0f'
-        elif ftype == 'str': return '""'
-        elif ftype == 'bool': return 'false'
-        elif ftype == 'null': return 'nullptr'
-        elif ftype.startswith('vector'): return ''
-        else: return 'nullptr'
-
-    def _generate_dict_def(self, node: DictDef):
-        if not isinstance(node.value, DictLiteral):
-            raise CodeGenError(f"DictDef {node.name}: значение должно быть словарём")
-        fields = []
-        values = []
-        for key, val in node.value.pairs:
-            cpp_type, cpp_val = self._value_to_cpp(val)
-            fields.append(f'    {cpp_type} {key};')
-            values.append(f'    .{key} = {cpp_val},')
-        struct_name = f'{node.name}_t'
-        self.globals.append(f'struct {struct_name} {{')
-        self.globals.extend(fields)
-        self.globals.append('};')
-        self.globals.append('')
-        self.globals.append(f'const {struct_name} {node.name} = {{')
-        self.globals.extend(values)
-        self.globals.append('};')
-        self.globals.append('')
-
-    def _value_to_cpp(self, node: ASTNode) -> Tuple[str, str]:
-        if isinstance(node, StringLiteral):
-            self._use_std('string')
-            return 'std::string', f'"{node.value}"'
-        elif isinstance(node, NumberLiteral):
-            return ('float', f'{node.value}f') if isinstance(node.value, float) else ('int', str(node.value))
-        elif isinstance(node, BoolLiteral):
-            return 'bool', 'true' if node.value else 'false'
-        elif isinstance(node, NoneLiteral):
-            return 'std::nullptr_t', 'nullptr'
-        elif isinstance(node, TypeCall):
-            return self._type_call_to_cpp(node)
-        elif isinstance(node, DictLiteral):
-            return self._inline_dict_to_cpp(node)
-        else:
-            raise CodeGenError(f"Неизвестный тип значения: {type(node).__name__}")
-
-    def _type_call_to_cpp(self, node: TypeCall) -> Tuple[str, str]:
-        if node.typename == 'int':
-            return 'int', self._value_to_cpp(node.args[0])[1]
-        elif node.typename == 'float':
-            val = self._value_to_cpp(node.args[0])[1]
-            return 'float', val if val.endswith('f') else val + 'f'
-        elif node.typename == 'str':
-            self._use_std('string')
-            return 'std::string', self._value_to_cpp(node.args[0])[1]
-        elif node.typename == 'bool':
-            return 'bool', self._value_to_cpp(node.args[0])[1]
-        elif node.typename == 'list':
-            self._use_std('vector')
-            vals = ', '.join(self._value_to_cpp(a)[1] for a in node.args)
-            return 'std::vector<std::string>', '{' + vals + '}'
-        elif node.typename == 'dict':
-            self._use_std('map'); self._use_std('any')
-            pairs = []
-            for i in range(0, len(node.args), 2):
-                pairs.append(f'{{{self._value_to_cpp(node.args[i])[1]}, {self._value_to_cpp(node.args[i+1])[1]}}}')
-            return 'std::map<std::string, std::any>', '{' + ', '.join(pairs) + '}'
-        else:
-            raise CodeGenError(f"Неизвестный тип: {node.typename}")
-
-    def _inline_dict_to_cpp(self, node: DictLiteral) -> Tuple[str, str]:
-        fields = []; vals = []
-        for key, val in node.pairs:
-            cpp_type, cpp_val = self._value_to_cpp(val)
-            fields.append(f'{cpp_type} {key};')
-            vals.append(f'.{key} = {cpp_val}')
-        code = f'[](){{\n        struct {{ {" ".join(fields)} }} tmp{{{", ".join(vals)}}};\n        return tmp;\n    }}()'
-        return 'std::map<std::string, std::any>', code
-
-    def _use_std(self, header: str):
-        self._used_std.add(header)
-    
     def _get_parent_fields(self, parent_name: str) -> dict:
-        # Entity и System — базовые классы, их поля не дублируем
+        """
+        Возвращает поля родительского класса (не Entity/System).
+        Ищет среди уже сгенерированных классов.
+        """
         if parent_name in ('Entity', 'System'):
             return {}
-        
-        # Ищем среди сгенерированных классов
+
         for class_code in self.classes:
             if class_code.startswith(f'class {parent_name} :'):
                 fields = {}
@@ -340,193 +780,3 @@ int main() {{
                             fields[parts[1][:-1]] = parts[0]
                 return fields
         return {}
-
-    def _infer_type(self, value, method_params: List[tuple] = None) -> str:
-        if isinstance(value, NumberLiteral):
-            return 'float' if isinstance(value.value, float) else 'int'
-        elif isinstance(value, StringLiteral):
-            return 'str'
-        elif isinstance(value, BoolLiteral):
-            return 'bool'
-        elif isinstance(value, NoneLiteral):
-            return 'null'
-        elif isinstance(value, TypeCall):
-            if value.typename == 'list':
-                if value.args:
-                    inner = self._infer_type(value.args[0], method_params)
-                    return f'vector<{inner}>'
-                return 'vector'
-            elif value.typename == 'dict':
-                return 'map'
-            return value.typename
-        elif isinstance(value, FieldAccess):
-            if value.field in ('name', 'title', 'description', 'image_path', 'sprite_path'):
-                return 'str'
-            return 'int'
-        elif isinstance(value, Identifier):
-            # Проверяем, не параметр ли это метода
-            if method_params:
-                for pname, ptype in method_params:
-                    if pname == value.name:
-                        return ptype
-            return value.name
-        elif isinstance(value, BinaryOp):
-            return self._infer_type(value.left, method_params)
-        elif isinstance(value, FunCall):
-            return value.name
-        return 'int'
-
-    def _generate_method(self, method: MethodDef) -> List[str]:
-        lines = []
-        real_params = [(n, t) for n, t in method.params if n != 'self']
-        type_map = {'int': 'int', 'float': 'float', 'str': 'std::string', 'bool': 'bool'}
-        params_str = ', '.join(f'{type_map.get(t, t)} {n}' for n, t in real_params)
-        if method.vararg:
-            params_str += f', std::vector<int> {method.vararg}'
-        lines.append(f'    void {method.name}({params_str}) {{')
-        if method.body:
-            for stmt in method.body:
-                lines.append(self._generate_statement(stmt, indent=2))
-        else:
-            lines.append('        // (пустое тело)')
-        lines.append('    }')
-        lines.append('')
-        return lines
-
-    def _generate_statement(self, stmt, indent: int = 2) -> str:
-        pad = '    ' * indent
-        if stmt is None:
-            return f'{pad};'
-        if isinstance(stmt, Assignment):
-            name = stmt.name.replace('self.', 'this->')
-            if isinstance(stmt.value, FileOpen):
-                self._used_std.add('fstream')
-                return f'{pad}std::fstream {name}("{self._expr_to_cpp(stmt.value.filename)}", std::ios::{stmt.value.mode});'
-            return f'{pad}{name} = {self._expr_to_cpp(stmt.value)};'
-        elif isinstance(stmt, IfStmt):
-            return self._generate_if(stmt, indent)
-        elif isinstance(stmt, WhileStmt):
-            return self._generate_while(stmt, indent)
-        elif isinstance(stmt, ForStmt):
-            return self._generate_for(stmt, indent)
-        elif isinstance(stmt, ReturnStmt):
-            return f'{pad}return {self._expr_to_cpp(stmt.value)};' if stmt.value else f'{pad}return;'
-        elif isinstance(stmt, ContinueStmt):
-            return f'{pad}continue;'
-        elif isinstance(stmt, BreakStmt):
-            return f'{pad}break;'
-        elif isinstance(stmt, MethodCall):
-            obj = self._expr_to_cpp(stmt.obj)
-            if obj == 'self': obj = 'this'
-            return f'{pad}{obj}->{stmt.method}({", ".join(self._expr_to_cpp(a) for a in stmt.args)});'
-        elif isinstance(stmt, FunCall):
-            if stmt.name in BUILTIN_FUNCTIONS:
-                if stmt.name.startswith('play_') or stmt.name.startswith('stop_'):
-                    self._used_std.add('SDL2/SDL_mixer.h')
-                return f'{pad}{stmt.name}({", ".join(self._expr_to_cpp(a) for a in stmt.args)});'
-        elif isinstance(stmt, DictDef):
-            return f'{pad}// DictDef: {stmt.name}'
-        elif isinstance(stmt, PrintStmt):
-            self._used_std.add('iostream')
-            return f'{pad}std::cout << {self._expr_to_cpp(stmt.value)} << std::endl;'
-        elif isinstance(stmt, AssertStmt):
-            self._used_std.add('cassert')
-            return f'{pad}assert({self._expr_to_cpp(stmt.condition)});'
-        elif isinstance(stmt, CompoundAssignment):
-            name = stmt.name.replace('self.', 'this->')
-            if stmt.op == '++':
-                return f'{pad}{name}++;'
-            elif stmt.op == '--':
-                return f'{pad}{name}--;'
-            return f'{pad}{name} {stmt.op} {self._expr_to_cpp(stmt.value)};'
-        elif isinstance(stmt, UnaryOp):
-            if stmt.op in ('++', '--'):
-                name = self._expr_to_cpp(stmt.expr).replace('self.', 'this->')
-                return f'{pad}{stmt.op}{name};'
-            return f'{pad}{stmt.op}{self._expr_to_cpp(stmt.expr)};'
-        elif isinstance(stmt, FileOpen):
-            self._used_std.add('fstream')
-            return f'{pad}std::fstream {stmt.file}("{self._expr_to_cpp(stmt.filename)}", std::ios::{stmt.mode});'
-        elif isinstance(stmt, FileRead):
-            return f'{pad}std::getline({stmt.file}, {self._expr_to_cpp(stmt.content)});'
-        elif isinstance(stmt, FileWrite):
-            return f'{pad}{stmt.file} << {self._expr_to_cpp(stmt.content)};'
-        elif isinstance(stmt, FileClose):
-            return f'{pad}{stmt.file}.close();'
-        return f'{pad}// TODO: {type(stmt).__name__}'
-
-    def _generate_if(self, stmt: IfStmt, indent: int = 2) -> str:
-        pad = '    ' * indent
-        result = f'{pad}if ({self._expr_to_cpp(stmt.condition)}) {{\n'
-        for s in stmt.body:
-            result += self._generate_statement(s, indent + 1) + '\n'
-        result += f'{pad}}}'
-        if stmt.else_body:
-            # Проверяем, elif ли это (одна инструкция IfStmt)
-            if len(stmt.else_body) == 1 and isinstance(stmt.else_body[0], IfStmt):
-                result += f' else {self._generate_if(stmt.else_body[0], indent)[len(pad):]}'
-            else:
-                result += f' else {{\n'
-                for s in stmt.else_body:
-                    result += self._generate_statement(s, indent + 1) + '\n'
-                result += f'{pad}}}'
-        return result
-
-    def _generate_while(self, stmt: WhileStmt, indent: int = 2) -> str:
-        pad = '    ' * indent
-        result = f'{pad}while ({self._expr_to_cpp(stmt.condition)}) {{\n'
-        for s in stmt.body:
-            result += self._generate_statement(s, indent + 1) + '\n'
-        result += f'{pad}}}'
-        return result
-
-    def _generate_for(self, stmt: ForStmt, indent: int = 2) -> str:
-        pad = '    ' * indent
-        result = f'{pad}for (auto& {stmt.var} : {self._expr_to_cpp(stmt.iterable)}) {{\n'
-        for s in stmt.body:
-            result += self._generate_statement(s, indent + 1) + '\n'
-        result += f'{pad}}}'
-        return result
-
-    def _expr_to_cpp(self, expr) -> str:
-        if isinstance(expr, NumberLiteral):
-            return str(expr.value)
-        elif isinstance(expr, StringLiteral):
-            return f'"{expr.value}"'
-        elif isinstance(expr, BoolLiteral):
-            return 'true' if expr.value else 'false'
-        elif isinstance(expr, Identifier):
-            return expr.name
-        elif isinstance(expr, FieldAccess):
-            obj = self._expr_to_cpp(expr.obj)
-            return f'this->{expr.field}' if obj == 'self' else f'{obj}.{expr.field}'
-        elif isinstance(expr, MethodCall):
-            obj = self._expr_to_cpp(expr.obj)
-            if obj == 'self': obj = 'this'
-            return f'{obj}->{expr.method}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
-        elif isinstance(expr, FunCall):
-            if expr.name in BUILTIN_FUNCTIONS:
-                return f'{expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
-            return f'new {expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
-        elif isinstance(expr, TypeCall):
-            return self._type_call_to_cpp(expr)[1]
-        elif isinstance(expr, DictLiteral):
-            return self._inline_dict_to_cpp(expr)[1]
-        elif isinstance(expr, BinaryOp):
-            op_map = {'and': '&&', 'or': '||'}
-            op = op_map.get(expr.op, expr.op)
-            return f'{self._expr_to_cpp(expr.left)} {op} {self._expr_to_cpp(expr.right)}'
-        elif isinstance(expr, UnaryOp):
-            if expr.op in ('++', '--'):
-                return f'{expr.op}{self._expr_to_cpp(expr.expr)}'
-            return f'{expr.op}{self._expr_to_cpp(expr.expr)}'
-        elif isinstance(expr, ListLiteral):
-            elements = ', '.join(self._expr_to_cpp(e) for e in expr.elements)
-            return '{' + elements + '}'
-        elif isinstance(expr, NoneLiteral):
-            return 'nullptr'
-        elif isinstance(expr, LambdaExpr):
-            params_str = ', '.join(f'int {n}' for n, t in expr.params)
-            body_str = '; '.join(self._generate_statement(s, indent=0).strip() for s in expr.body)
-            return f'[&]({params_str}) {{ {body_str} }}'
-        return f'/* {type(expr).__name__} */'
