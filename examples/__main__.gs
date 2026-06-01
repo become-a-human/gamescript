@@ -1,7 +1,5 @@
 @load "entity"
 @load "system"
-@load "sdl_mixer"
-@load "sound"
 @load "hero"
 
 class Main(System):

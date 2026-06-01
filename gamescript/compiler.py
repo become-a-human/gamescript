@@ -135,9 +135,11 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
 
     if build:
         binary_path = str(Path(output_path).with_suffix(''))
+        sound_cpp = Path(__file__).parent.parent / 'runtime' / 'sound.cpp'
         result = subprocess.run(
-            ['g++', '-std=c++17', '-DHAS_SDL2', '-I', str(output_dir),
-             output_path, '-o', binary_path, '-lSDL2', '-lSDL2_image'],
+            ['g++', '-std=c++17', '-I', str(output_dir), 
+             output_path, str(sound_cpp), '-o', binary_path,
+             '-lSDL2', '-lSDL2_image', '-lSDL2_mixer'],
             capture_output=True, text=True)
         if result.returncode != 0:
             print(f"Ошибка компиляции:\n{result.stderr}")
