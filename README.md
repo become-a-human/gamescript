@@ -1,12 +1,12 @@
 # GameScript
 ![License](https://img.shields.io/github/license/become-a-human/gamescript)
-![Version](https://img.shields.io/badge/version-0.7.1-orange)
+![Version](https://img.shields.io/badge/version-0.7.2-orange)
 ![PyVer](https://img.shields.io/badge/python-3.9+-blue)
 ![Output](https://img.shields.io/badge/output-C++-00599C)
 
 DSL для геймдева, компилируется в C++. Пиши как на Python, работает как C++.
 
-> ⚠️ <strong>v0.7.1</strong> — активная разработка.<br>
+> ⚠️ <strong>v0.7.2</strong> — активная разработка.<br>
 > 🔊 Звук (SDL_mixer) не тестировался. Требует ПК с SDL2_mixer.
 
 ## Быстрый старт

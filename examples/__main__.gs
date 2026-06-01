@@ -1,26 +1,24 @@
 @load "entity"
 @load "system"
 @load "hero"
-@load "joystick"
-@load "calculator"
-@load "rng"
-@load "clock"
-@load "aabb"
-@load? "sdl_mixer"
-@load? "sound"
 
 class Main(System):
-    """Точка входа — генерирует int main()"""
+    """Точка входа — консольная игра"""
     
     def on_start(self):
-        self.gold = 100
-        self.running = true
         self.hero = Hero()
         self.hero:on_create()
-        print("Game started!")
+        self.gold = 0
+        self.score = 0
+        self.running = true
+        print("=== GameScript Console Game ===")
+        print("Hero: " + self.hero.name)
+        print("HP: " + str(self.hero.hp))
     
     def on_update(self):
-        self.gold = self.gold + 1
-        self.hero:update_animation()
-        if self.gold >= 1000:
-            self.gold = 0
+        self.score = self.score + 1
+        if self.score % 10 == 0:
+            print("Score: " + str(self.score))
+        if self.score >= 50:
+            self.running = false
+            print("WIN!")

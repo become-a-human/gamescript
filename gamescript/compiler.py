@@ -133,10 +133,8 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
     Иначе — .cpp.
     """
     input_file = Path(input_path)
-
     if input_file.suffix not in ALLOWED_EXTENSIONS:
         raise ValueError(f"Неверное расширение: '{input_file.suffix}'")
-
     source = input_file.read_text(encoding='utf-8')
     first_line = source.split('\n')[0].strip()
     is_header = first_line == '# --header'
@@ -158,39 +156,75 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
                             build=build, debug=debug, short=short)
 
     if build:
-        binary_path = str(Path(output_path).with_suffix(''))
-        cmd = ['g++', '-std=c++17', '-I', str(output_dir), output_path]
+        target = 'linux'
+        if '--target' in sys.argv:
+            idx = sys.argv.index('--target')
+            if idx + 1 < len(sys.argv):
+                target = sys.argv[idx + 1]
 
-        # Звук (SDL_mixer)
-        sound_cpp = Path(__file__).parent.parent / 'runtime' / 'sound.cpp'
-        if _has_pkg('SDL2_mixer') and sound_cpp.exists():
-            cmd.append(str(sound_cpp))
-            cmd.extend(['-lSDL2', '-lSDL2_image', '-lSDL2_mixer', '-DHAS_SDL_MIXER'])
-
-        # Сеть (curl)
-        network_cpp = Path(__file__).parent.parent / 'runtime' / 'network.cpp'
-        if _has_pkg('libcurl') and network_cpp.exists():
-            cmd.append(str(network_cpp))
-            cmd.append('-lcurl')
-
-        # База данных (SQLite)
-        db_cpp = Path(__file__).parent.parent / 'runtime' / 'database.cpp'
-        if _has_pkg('sqlite3') and db_cpp.exists():
-            cmd.append(str(db_cpp))
-            cmd.append('-lsqlite3')
-
-        # Потоки
-        thread_cpp = Path(__file__).parent.parent / 'runtime' / 'thread.cpp'
-        if thread_cpp.exists():
-            cmd.append(str(thread_cpp))
-            cmd.append('-pthread')
-
-        cmd.extend(['-o', binary_path])
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"Ошибка компиляции:\n{result.stderr}")
+        if target == 'android':
+            ndk = Path.home() / 'android-ndk'
+            toolchain = ndk / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++'
+            
+            if not toolchain.exists():
+                print("Ошибка: Android NDK не найден. Установите: pkg install android-ndk")
+                sys.exit(1)
+            
+            so_path = output_dir / 'libgame.so'
+            result = subprocess.run([
+                str(toolchain), '-std=c++17', '-shared', '-fPIC',
+                '-I', str(output_dir),
+                output_path, '-o', str(so_path),
+                '-lSDL2', '-lSDL2_image', '-lSDL2_mixer'
+            ], capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                print(f"Ошибка компиляции:\n{result.stderr}")
+            else:
+                jni_dir = Path(__file__).parent.parent / 'runtime/android/app/src/main/jniLibs/arm64-v8a'
+                jni_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy(so_path, jni_dir / 'libgame.so')
+                
+                subprocess.run(['gradle', 'assembleDebug'],
+                               cwd=str(Path(__file__).parent.parent / 'runtime/android'))
+                
+                apk = Path(__file__).parent.parent / 'runtime/android/app/build/outputs/apk/debug/app-debug.apk'
+                if apk.exists():
+                    target_apk = output_dir / 'game.apk'
+                    shutil.copy(apk, target_apk)
+                    print(f'✓ Собран APK: {target_apk}')
+                else:
+                    print("APK не собран. Проверьте установку Android SDK и Gradle.")
         else:
-            print(f'✓ Собран бинарник: {binary_path}')
+            binary_path = str(Path(output_path).with_suffix(''))
+            cmd = ['g++', '-std=c++17', '-I', str(output_dir), output_path]
+
+            sound_cpp = Path(__file__).parent.parent / 'runtime' / 'sound.cpp'
+            if _has_pkg('SDL2_mixer') and sound_cpp.exists():
+                cmd.append(str(sound_cpp))
+                cmd.extend(['-lSDL2', '-lSDL2_image', '-lSDL2_mixer', '-DHAS_SDL_MIXER'])
+
+            network_cpp = Path(__file__).parent.parent / 'runtime' / 'network.cpp'
+            if _has_pkg('libcurl') and network_cpp.exists():
+                cmd.append(str(network_cpp))
+                cmd.append('-lcurl')
+
+            db_cpp = Path(__file__).parent.parent / 'runtime' / 'database.cpp'
+            if _has_pkg('sqlite3') and db_cpp.exists():
+                cmd.append(str(db_cpp))
+                cmd.append('-lsqlite3')
+
+            thread_cpp = Path(__file__).parent.parent / 'runtime' / 'thread.cpp'
+            if thread_cpp.exists():
+                cmd.append(str(thread_cpp))
+                cmd.append('-pthread')
+
+            cmd.extend(['-o', binary_path])
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Ошибка компиляции:\n{result.stderr}")
+            else:
+                print(f'✓ Собран бинарник: {binary_path}')
 
     return cpp_code
 
@@ -348,16 +382,102 @@ def _cmd_init():
         project_dir = Path(clean[0])
     project_dir.mkdir(parents=True, exist_ok=True)
 
+    # Папки проекта
+    for d in ['images', 'sounds', 'maps', 'src']:
+        (project_dir / d).mkdir(parents=True, exist_ok=True)
+
     files = {
-        'entity.gs': '# --header\nclass Entity:\n    def on_create(self):\n        self.name = ""\n        self.hp = 100\n        self.is_alive = true\n',
-        'system.gs': '# --header\nclass System:\n    def on_start(self):\n        pass\n    def on_update(self):\n        pass\n',
-        'hero.gs': '# --header\n@load "entity"\n\nHERO = { "name": "Артур", "hp": 100 }\n\nclass Hero(Entity):\n    def on_create(self):\n        self.hp = HERO.hp\n',
-        '__main__.gs': '@load "entity"\n@load "system"\n@load "hero"\n\nclass Main(System):\n    def on_start(self):\n        self.gold = 100\n    def on_update(self):\n        self.gold = self.gold + 1\n',
+        'src/entity.gs': (
+            '# --header\n'
+            'class Entity:\n'
+            '    def on_create(self):\n'
+            '        self.name = ""\n'
+            '        self.x = 0\n'
+            '        self.y = 0\n'
+            '        self.hp = 100\n'
+            '        self.max_hp = 100\n'
+            '        self.speed = 1.0\n'
+            '        self.sprite = ""\n'
+            '        self.frame = 0\n'
+            '        self.is_alive = true\n'
+        ),
+        'src/system.gs': (
+            '# --header\n'
+            'class System:\n'
+            '    def on_start(self):\n'
+            '        pass\n'
+            '    def on_update(self):\n'
+            '        pass\n'
+        ),
+        'src/hero.gs': (
+            '# --header\n'
+            '@load "entity"\n'
+            '\n'
+            'HERO = {\n'
+            '    "name": "Артур",\n'
+            '    "hp": 100,\n'
+            '    "speed": 2.0,\n'
+            '}\n'
+            '\n'
+            'class Hero(Entity):\n'
+            '    """Главный герой"""\n'
+            '    def on_create(self):\n'
+            '        self.name = HERO.name\n'
+            '        self.hp = HERO.hp\n'
+            '        self.speed = HERO.speed\n'
+            '        self.sprite = "images/hero.png"\n'
+            '        self.x = 400\n'
+            '        self.y = 300\n'
+            '        self.is_alive = true\n'
+            '    \n'
+            '    def move(self, dx: int, dy: int):\n'
+            '        self.x = self.x + dx * self.speed\n'
+            '        self.y = self.y + dy * self.speed\n'
+            '    \n'
+            '    def take_damage(self, amount: int):\n'
+            '        self.hp = self.hp - amount\n'
+            '        if self.hp <= 0:\n'
+            '            self.is_alive = false\n'
+        ),
+        'src/__main__.gs': (
+            '@load "entity"\n'
+            '@load "system"\n'
+            '@load "hero"\n'
+            '\n'
+            'class Main(System):\n'
+            '    """Точка входа"""\n'
+            '    def on_start(self):\n'
+            '        self.hero = Hero()\n'
+            '        self.hero:on_create()\n'
+            '        self.gold = 0\n'
+            '        print("Game started!")\n'
+            '    \n'
+            '    def on_update(self):\n'
+            '        self.hero:move(1, 0)\n'
+            '        if self.hero.x > 800:\n'
+            '            self.hero.x = 0\n'
+            '        self.gold = self.gold + 1\n'
+        ),
     }
+    
     for name, content in files.items():
-        (project_dir / name).write_text(content)
-        print(f"✓ Создан {project_dir / name}")
-    print(f"Проект создан в {project_dir}")
+        path = project_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        print(f"✓ Создан {path}")
+    
+    # Пустые файлы-заглушки
+    (project_dir / 'images' / '.gitkeep').write_text('')
+    (project_dir / 'sounds' / '.gitkeep').write_text('')
+    (project_dir / 'maps' / '.gitkeep').write_text('')
+    
+    print(f"\nПроект создан в {project_dir}")
+    print("Структура:")
+    print("  src/         — исходники GameScript")
+    print("  images/      — спрайты (.png)")
+    print("  sounds/      — звуки (.wav, .mp3, .ogg)")
+    print("  maps/        — карты уровней")
+    print("\nДля сборки: gamescript src/__main__.gs --build -o game")
 
 
 def _cmd_watch():

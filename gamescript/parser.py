@@ -701,7 +701,6 @@ class Parser:
         return left
 
     def _parse_unary(self) -> ASTNode:
-        """Унарные операторы: not, ++, --"""
         t = self.peek()
         if t.type == TokenType.NOT:
             self.advance()
@@ -709,6 +708,9 @@ class Parser:
         elif t.type in (TokenType.PLUS_PLUS, TokenType.MINUS_MINUS):
             op = self.advance().value
             return UnaryOp(op, self._parse_primary())
+        elif t.type == TokenType.MINUS:
+            self.advance()
+            return UnaryOp('-', self._parse_primary())
         return self._parse_primary()
 
     def _parse_primary(self) -> ASTNode:
