@@ -42,6 +42,9 @@ compile:
 	python -m gamescript.compiler examples/clock.gs examples/generated/clock.h
 	python -m gamescript.compiler examples/aabb.gs examples/generated/aabb.h
 	python -m gamescript.compiler examples/sound.gs examples/generated/sound.h
+	python -m gamescript.compiler examples/network.gs examples/generated/network.h
+	python -m gamescript.compiler examples/database.gs examples/generated/database.h
+	python -m gamescript.compiler examples/thread.gs examples/generated/thread.h
 	python -m gamescript.compiler examples/menu.gs examples/generated/menu.h
 	python -m gamescript.compiler examples/hero.gs examples/generated/hero.h
 	python -m gamescript.compiler examples/__main__.gs examples/generated/__main__.cpp

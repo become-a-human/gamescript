@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.7.0 (2026-06-01)
+
+### Добавлено
+- Сеть: HTTP-запросы (`http_get`, `http_post`) через curl
+- Сокеты: `socket_connect`, `socket_send`, `socket_recv`
+- База данных: SQLite (`db_open`, `db_exec`, `db_close`)
+- Многопоточность: `thread_sleep`, поддержка `std::thread`
+- Опциональные импорты: `@load?` генерирует `#ifdef HAS_MODULE`
+- `runtime/network.cpp`, `runtime/database.cpp`, `runtime/thread.cpp`
+- Авто-определение библиотек через `pkg-config` при `--build`
+- Примеры: `network.gs`, `database.gs`, `thread.gs`
+
+### Исправлено
+- `@load?` для builtin-библиотек
+- `curl_write_callback` переименован для избежания конфликта
+- `_parse_ident_stmt` поддерживает вызов функций без присваивания
+
 ## v0.6.0 (2026-06-01)
 
 ### Добавлено

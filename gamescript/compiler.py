@@ -38,13 +38,19 @@ def compile_text(source: str, output_path: Optional[str] = None,
 
     for stmt in ast.statements:
         if isinstance(stmt, LoadStmt):
-            if not stmt.optional:
-                stem = stmt.filename.rsplit('.', 1)[0].split('/')[-1]
-                if stem not in BUILTIN_LIBS:
-                    filepath = _find_file(stmt.filename, base_path or Path.cwd())
-                    if filepath is None:
-                        raise ParseError(f"@load: файл не найден: {stmt.filename}", 0, 0)
-            gen.add_load(stmt)
+            stem = stmt.filename.rsplit('.', 1)[0].split('/')[-1]
+            if stem in BUILTIN_LIBS:
+                gen.add_load(stmt)  # builtin всегда добавляем
+            elif not stmt.optional:
+                filepath = _find_file(stmt.filename, base_path or Path.cwd())
+                if filepath is None:
+                    raise ParseError(f"@load: файл не найден: {stmt.filename}", 0, 0)
+                gen.add_load(stmt)
+            else:
+                # @load? — просто проверяем существование
+                filepath = _find_file(stmt.filename, base_path or Path.cwd())
+                if filepath is not None:
+                    gen.add_load(stmt)
 
     cpp_code = gen.generate(ast)
 
@@ -135,17 +141,57 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
 
     if build:
         binary_path = str(Path(output_path).with_suffix(''))
+        cmd = ['g++', '-std=c++17', '-I', str(output_dir), output_path]
+        
+        # Звук
         sound_cpp = Path(__file__).parent.parent / 'runtime' / 'sound.cpp'
-        result = subprocess.run(
-            ['g++', '-std=c++17', '-I', str(output_dir), 
-             output_path, str(sound_cpp), '-o', binary_path,
-             '-lSDL2', '-lSDL2_image', '-lSDL2_mixer'],
-            capture_output=True, text=True)
+        has_sdl_mixer = False
+        try:
+            result = subprocess.run(['pkg-config', '--exists', 'SDL2_mixer'], capture_output=True)
+            has_sdl_mixer = result.returncode == 0
+        except:
+            pass
+        if has_sdl_mixer and sound_cpp.exists():
+            cmd.append(str(sound_cpp))
+            cmd.extend(['-lSDL2', '-lSDL2_image', '-lSDL2_mixer', '-DHAS_SDL_MIXER'])
+        
+        # Сеть
+        network_cpp = Path(__file__).parent.parent / 'runtime' / 'network.cpp'
+        has_curl = False
+        try:
+            result = subprocess.run(['pkg-config', '--exists', 'libcurl'], capture_output=True)
+            has_curl = result.returncode == 0
+        except:
+            pass
+        if has_curl and network_cpp.exists():
+            cmd.append(str(network_cpp))
+            cmd.append('-lcurl')
+        
+        # SQLite
+        db_cpp = Path(__file__).parent.parent / 'runtime' / 'database.cpp'
+        has_sqlite = False
+        try:
+            result = subprocess.run(['pkg-config', '--exists', 'sqlite3'], capture_output=True)
+            has_sqlite = result.returncode == 0
+        except:
+            pass
+        if has_sqlite and db_cpp.exists():
+            cmd.append(str(db_cpp))
+            cmd.append('-lsqlite3')
+        
+        # Потоки
+        thread_cpp = Path(__file__).parent.parent / 'runtime' / 'thread.cpp'
+        if thread_cpp.exists():
+            cmd.append(str(thread_cpp))
+            cmd.append('-pthread')
+        
+        cmd.extend(['-o', binary_path])
+        result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             print(f"Ошибка компиляции:\n{result.stderr}")
         else:
             print(f'✓ Собран бинарник: {binary_path}')
-
+    
     return cpp_code
 
 

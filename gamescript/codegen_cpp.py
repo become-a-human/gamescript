@@ -20,9 +20,14 @@ BUILTIN_LIBS = {
     'time': '<chrono>',
     'thread': '<thread>',
     'sdl_mixer': '<SDL2/SDL_mixer.h>',
+    'curl': '<curl/curl.h>',
+    'socket': '<sys/socket.h>',
+    'netdb': '<netdb.h>',
+    'curl': '<curl/curl.h>',
+    'sqlite': '<sqlite3.h>',
 }
 
-BUILTIN_FUNCTIONS = {'sqrt', 'sin', 'cos', 'tan', 'abs', 'pow', 'random', 'time', 'delay', 'play_sound', 'play_music', 'stop_music',}
+BUILTIN_FUNCTIONS = {'sqrt', 'sin', 'cos', 'tan', 'abs', 'pow', 'random', 'time', 'delay', 'play_sound', 'play_music', 'stop_music', 'http_get', 'http_post', 'socket_connect', 'socket_send', 'socket_recv', 'db_open', 'db_exec', 'db_close', 'thread_sleep',}
 
 
 class CodeGenError(Exception):
@@ -42,17 +47,19 @@ class CppCodeGen:
     def add_load(self, stmt: LoadStmt):
         stem = stmt.filename.rsplit('.', 1)[0].split('/')[-1]
         if stem in BUILTIN_LIBS:
-            self.includes.append(f'#include {BUILTIN_LIBS[stem]}')
-            if stmt.alias:
-                self.includes.append(f'namespace {stmt.alias} = {stem};')
-            return
-        
-        self.includes.append(f'#include "{stem}.h"')
-        if stmt.alias:
-            if stmt.alias == '*':
-                self.includes.append(f'using namespace {stem};')
+            if stmt.optional:
+                self.includes.append(f'#ifdef HAS_{stem.upper()}')
+                self.includes.append(f'#include {BUILTIN_LIBS[stem]}')
+                self.includes.append(f'#endif')
             else:
-                self.includes.append(f'using {stmt.alias} = {stem};')
+                self.includes.append(f'#include {BUILTIN_LIBS[stem]}')
+        else:
+            if stmt.optional:
+                self.includes.append(f'#ifdef HAS_{stem.upper()}')
+                self.includes.append(f'#include "{stem}.h"')
+                self.includes.append(f'#endif')
+            else:
+                self.includes.append(f'#include "{stem}.h"')
 
     def _load_base_class(self, parent_name: str) -> dict:
         """Загружает поля базового класса из entity.gs или system.gs."""
@@ -414,10 +421,9 @@ int main() {{
             return f'{pad}{obj}->{stmt.method}({", ".join(self._expr_to_cpp(a) for a in stmt.args)});'
         elif isinstance(stmt, FunCall):
             if stmt.name in BUILTIN_FUNCTIONS:
-                args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
-                return f'{pad}{stmt.name}({args_str});'
-            args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
-            return f'{pad}new {stmt.name}({args_str});'
+                if stmt.name.startswith('play_') or stmt.name.startswith('stop_'):
+                    self._used_std.add('SDL2/SDL_mixer.h')
+                return f'{pad}{stmt.name}({", ".join(self._expr_to_cpp(a) for a in stmt.args)});'
         elif isinstance(stmt, DictDef):
             return f'{pad}// DictDef: {stmt.name}'
         elif isinstance(stmt, PrintStmt):
