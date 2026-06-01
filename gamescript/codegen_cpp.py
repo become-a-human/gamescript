@@ -87,29 +87,25 @@ class CppCodeGen:
         return self._assemble(is_header=False)
 
     def generate_main(self, ast: Program) -> str:
-        main_class = None
+        game_class = 'Game'
         for stmt in ast.statements:
-            if isinstance(stmt, ClassDef) and stmt.name == 'Main':
-                main_class = stmt
+            if isinstance(stmt, ClassDef) and stmt.parent == 'System':
+                game_class = stmt.name
                 break
         
-        if not main_class:
-            raise CodeGenError("Не найден класс Main в __main__.gs")
-        
-        body_lines = []
-        for method in main_class.methods:
-            for stmt in method.body:
-                line = self._generate_statement(stmt, indent=1)
-                line = line.replace('this->', 'main.')
-                body_lines.append(line)
-        
-        body = '\n'.join(body_lines)
-        
-        return f'''int main() {{
-    Main main;
-{body}
+        return f'''
+int main() {{
+    {game_class} game;
+    game.on_start();
+    
+    bool running = true;
+    while (running) {{
+        game.on_update();
+    }}
+    
     return 0;
-}}'''
+}}
+'''
 
     def _assemble(self, is_header: bool = True) -> str:
         parts = []

@@ -1,13 +1,13 @@
 @load "entity"
 @load "system"
-@load "screen"
-@load "menu"
+@load "sound"
 @load "hero"
 
 class Main(System):
     def on_start(self):
-        self.screen = MainMenu()
-        self.running = true
+        self.gold = 100
+        print("Game started!")
+        play_sound("start.wav")
     
     def on_update(self):
         self.gold = self.gold + 1
