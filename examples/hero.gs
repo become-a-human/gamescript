@@ -1,6 +1,5 @@
 # --header
 @load "entity"
-@load "joystick"
 
 HERO = {
     "name": "Артур",

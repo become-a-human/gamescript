@@ -12,7 +12,7 @@ class Main(System):
         self.score = 0
         self.running = true
         print("=== GameScript Console Game ===")
-        print("Hero: " + self.hero.name)
+        print("Hero ready")
         print("HP: " + str(self.hero.hp))
     
     def on_update(self):

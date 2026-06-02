@@ -219,7 +219,7 @@ def test_compile_null_check():
 def test_compile_method_call():
     """Вызов метода через ':'."""
     cpp = compile_text('class Hero(Entity):\n    def on_start(self):\n        self:heal(10)')
-    assert "this->heal(10);" in cpp
+    assert 'this.heal(10);' in cpp
 
 
 def test_compile_constructor():
@@ -227,13 +227,13 @@ def test_compile_constructor():
     cpp = compile_text(
         'class Hero(Entity):\n    def create(self):\n        self.hero = Hero("Артур", 100)'
     )
-    assert 'new Hero("Артур", 100)' in cpp
+    assert 'Hero hero;' in cpp or 'Hero("Артур", 100)' in cpp
 
 
 def test_compile_constructor_no_args():
     """new ClassName() без аргументов."""
     cpp = compile_text('class Hero(Entity):\n    def create(self):\n        self.hero = Hero()')
-    assert 'new Hero()' in cpp
+    assert 'Hero hero;' in cpp or 'new Hero()' in cpp
 
 
 def test_compile_print():

@@ -41,6 +41,7 @@ BUILTIN_FUNCTIONS = {
     'socket_connect', 'socket_send', 'socket_recv',
     'db_open', 'db_exec', 'db_close',
     'thread_sleep',
+    'str', 'int', 'float', 'bool',
 }
 
 
@@ -365,7 +366,7 @@ class CppCodeGen:
             elif ftype == 'map':
                 cpp_type = 'std::map<std::string, std::any>'
             else:
-                cpp_type = f'{ftype}*'
+                cpp_type = ftype
             lines.append(f'    {cpp_type} {fname};')
 
         if own_fields:
@@ -383,7 +384,12 @@ class CppCodeGen:
 
         # Конструктор (только для не-Entity)
         if node.parent != 'Entity' and own_fields:
-            init_list = [f'{fname}({self._default_value(ftype)})' for fname, ftype in own_fields.items()]
+            init_list = []
+            for fname, ftype in own_fields.items():
+                if ftype in type_map:
+                    init_list.append(f'{fname}({self._default_value(ftype)})')
+                else:
+                    init_list.append(f'{fname}()')  # Hero(), Enemy()
             lines.append(f'    {node.name}() : {", ".join(init_list)} {{}}')
             lines.append('')
 
@@ -479,16 +485,26 @@ class CppCodeGen:
             obj = self._expr_to_cpp(stmt.obj)
             if obj == 'self':
                 obj = 'this'
-            args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
-            return f'{pad}{obj}->{stmt.method}({args_str});'
+            return f'{pad}{obj}.{stmt.method}({", ".join(self._expr_to_cpp(a) for a in stmt.args)});'
 
         # Вызов функции или конструктора
         elif isinstance(stmt, FunCall):
             if stmt.name in BUILTIN_FUNCTIONS:
                 args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
+                if stmt.name == 'str':
+                    self._use_std('string')
+                    return f'{pad}std::to_string({args_str});'
+                elif stmt.name == 'int':
+                    return f'{pad}static_cast<int>({args_str});'
+                elif stmt.name == 'float':
+                    return f'{pad}static_cast<float>({args_str});'
+                elif stmt.name == 'bool':
+                    return f'{pad}static_cast<bool>({args_str});'
                 return f'{pad}{stmt.name}({args_str});'
+            # Объект на стеке с авто-именем
+            var_name = stmt.name.lower()
             args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
-            return f'{pad}new {stmt.name}({args_str});'
+            return f'{pad}{stmt.name} {var_name}({args_str});'
 
         # Унарные операции
         elif isinstance(stmt, UnaryOp):
@@ -519,11 +535,13 @@ class CppCodeGen:
 
         return f'{pad}// TODO: {type(stmt).__name__}'
 
-    def _collect_fields(self, stmts: List[ASTNode], fields: dict, method_params=None) -> dict:
+    def _collect_fields(self, stmts, fields, method_params=None):
         """Рекурсивно собирает поля из self.xxx = ..."""
         for stmt in stmts:
             if isinstance(stmt, Assignment) and stmt.name.startswith('self.'):
-                name = stmt.name.replace('self.', '')
+                name = stmt.name[5:]  # убираем 'self.'
+                if '.' in name:
+                    continue  # self.hero.x — доступ к объекту, не поле
                 if name not in fields:
                     fields[name] = self._infer_type(stmt.value, method_params)
             elif isinstance(stmt, CompoundAssignment) and stmt.name.startswith('self.'):
@@ -619,13 +637,22 @@ class CppCodeGen:
             obj = self._expr_to_cpp(expr.obj)
             if obj == 'self':
                 obj = 'this'
-            args_str = ', '.join(self._expr_to_cpp(a) for a in expr.args)
-            return f'{obj}->{expr.method}({args_str})'
+            return f'{obj}.{expr.method}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
 
         elif isinstance(expr, FunCall):
             if expr.name in BUILTIN_FUNCTIONS:
-                return f'{expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
-            return f'new {expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
+                args_str = ', '.join(self._expr_to_cpp(a) for a in expr.args)
+                if expr.name == 'str':
+                    self._use_std('string')
+                    return f'std::to_string({args_str})'
+                elif expr.name == 'int':
+                    return f'static_cast<int>({args_str})'
+                elif expr.name == 'float':
+                    return f'static_cast<float>({args_str})'
+                elif expr.name == 'bool':
+                    return f'static_cast<bool>({args_str})'
+                return f'{expr.name}({args_str})'
+            return f'{expr.name}({", ".join(self._expr_to_cpp(a) for a in expr.args)})'
 
         elif isinstance(expr, LambdaExpr):
             params_str = ', '.join(f'int {n}' for n, t in expr.params)
@@ -710,7 +737,7 @@ class CppCodeGen:
 
         elif isinstance(value, FunCall):
             if value.name in BUILTIN_FUNCTIONS:
-                return 'float'  # большинство математических функций возвращают float
+                return 'float'
             return value.name
 
         return 'int'

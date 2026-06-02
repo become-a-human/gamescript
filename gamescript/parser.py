@@ -389,13 +389,15 @@ class Parser:
         return ListLiteral(elements)
 
     def _parse_type_call(self) -> TypeCall:
-        """
-        Вызов конструктора типа: int(100), str("hello"), list(a, b, c)
-        Поддерживает trailing comma.
-        """
         typename = self.advance().value
         self.expect(TokenType.LPAREN)
-
+        
+        # Для str/int/float/bool разрешаем выражения
+        if typename in ('str', 'int', 'float', 'bool'):
+            args = [self._parse_expression()]
+            self.expect(TokenType.RPAREN)
+            return FunCall(typename, args)
+        
         args = []
         if self.peek().type != TokenType.RPAREN:
             args.append(self._parse_value())
@@ -404,7 +406,6 @@ class Parser:
                 if self.peek().type == TokenType.RPAREN:
                     break
                 args.append(self._parse_value())
-
         self.expect(TokenType.RPAREN)
         return TypeCall(typename, args)
 
