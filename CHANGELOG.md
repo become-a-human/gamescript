@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.7.4 (2026-06-08)
+
+### Добавлено
+- **RPG игра** — герой, враги (гоблин, орк), боевая система, уровни, опыт
+- **Редактор кода на GameScript** (`editor.gs`) — компилируется в бинарник
+- `#ifdef HAS_SDL_MIXER` для опционального звука
+- `Enemy` как тип параметра метода
+- `Hero()`, `Enemy()` — создание объектов на стеке
+- `generate_main()` ищет любой класс с `System`
+- `_optional_modules` — отслеживание `@load?` для `#ifdef`
+- `_get_module_for_function()` — маппинг функций на модули
+
+### Исправлено
+- `generate_main` — `return 0;` вместо `return;`
+- `_local_vars` сбрасывается перед генерацией `main()`
+- `sound.cpp` добавляется только если `_has_pkg('SDL2_mixer')`
+- `enemy.is_alive`, `enemy.defense`, `enemy.take_damage()` — работают
+
+### Файлы
+- `runtime/gs_ncurses.h` — заголовок для редактора
+- `runtime/ncurses.cpp` — обёртка над ncurses
+- `examples/enemy.gs` — враги для RPG
+- `examples/editor.gs` — редактор кода на GameScript
+
+### Убрано
+- `examples/calculator.gs` — редко используется
+- `examples/pixel_hero/` — старая игра
+
 ## v0.7.3 (2026-06-02)
 
 ### Добавлено

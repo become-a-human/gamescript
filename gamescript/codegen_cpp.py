@@ -30,6 +30,9 @@ BUILTIN_LIBS = {
     'sqlite': '<sqlite3.h>',
     'thread': '<thread>',
     'chrono': '<chrono>',
+    'imgui': '<imgui.h>',
+    'imgui_impl': '<imgui_impl_sdl2.h>',
+    'ncurses': '"gs_ncurses.h"',
 }
 
 # Встроенные функции (генерируются как вызов, а не new)
@@ -42,6 +45,10 @@ BUILTIN_FUNCTIONS = {
     'db_open', 'db_exec', 'db_close',
     'thread_sleep',
     'str', 'int', 'float', 'bool',
+    'ncurses_init', 'ncurses_end', 'ncurses_clear', 'ncurses_refresh',
+    'ncurses_getch', 'ncurses_print', 'read_file_lines', 'write_file_lines',
+    'chr', 'len', 'range', 'substr', 'ncurses_status',
+    'read_file', 'write_file', 'gs_len', 'gs_substr',
 }
 
 
@@ -62,13 +69,28 @@ class CppCodeGen:
     """
 
     def __init__(self, base_path: Path = None):
-        self._local_vars: set = set()  # локальные переменные
-        self.includes: List[str] = []   # #include "..."
-        self.globals: List[str] = []    # struct и const
-        self.classes: List[str] = []    # class определения
-        self._used_std: set = set()     # нужные std:: заголовки
-        self._field_types: dict = {}    # для проверки типов
+        """
+        Инициализация генератора кода.
+        
+        Атрибуты:
+            includes:           список #include "..." или <...>
+            globals:            глобальные struct и const
+            classes:            сгенерированные class определения
+            _used_std:          какие стандартные заголовки <...> нужны
+            _field_types:       словарь для проверки типов полей
+            _warnings:          предупреждения о несоответствии типов
+            _local_vars:        отслеживание объявленных локальных переменных
+            _optional_modules:  модули, подключённые через @load? (для #ifdef)
+            base_path:          базовая папка для поиска .gs файлов
+        """
+        self.includes: List[str] = []
+        self.globals: List[str] = []
+        self.classes: List[str] = []
+        self._used_std: set = set()
+        self._field_types: dict = {}
         self._warnings: List[str] = []
+        self._local_vars: set = set()
+        self._optional_modules: set = set()
         self.base_path = base_path or Path.cwd()
 
     # ===== Импорты =====
@@ -76,13 +98,21 @@ class CppCodeGen:
     def add_load(self, stmt: LoadStmt):
         """
         Добавляет @load в вывод.
+        
         @load "file"       → #include "file.h"
         @load? "file"      → #ifdef HAS_FILE / #include "file.h" / #endif
         @load "file" like "X" → #include "file.h" + using X = file;
         @load "file" like "*" → #include "file.h" + using namespace file;
+        
+        Опциональные модули (@load?) запоминаются для последующей
+        генерации #ifdef вокруг вызовов их функций.
         """
         stem = stmt.filename.rsplit('.', 1)[0].split('/')[-1]
-
+    
+        # Запоминаем опциональные модули для #ifdef
+        if stmt.optional:
+            self._optional_modules.add(stem.upper())
+    
         if stem in BUILTIN_LIBS:
             header = BUILTIN_LIBS[stem]
             if stmt.optional:
@@ -127,27 +157,33 @@ class CppCodeGen:
         return self._assemble(is_header=True)
 
     def generate_main(self, ast: Program) -> str:
-        """Генерирует int main() из __main__.gs."""
+        """Генерирует int main() из первого класса, наследующего System."""
         main_class = None
         for stmt in ast.statements:
-            if isinstance(stmt, ClassDef) and stmt.name == 'Main':
+            if isinstance(stmt, ClassDef) and stmt.parent == 'System':
+                main_class = stmt
+                break
+            elif isinstance(stmt, ClassDef) and not stmt.parent:
                 main_class = stmt
                 break
 
         if not main_class:
-            raise CodeGenError("Не найден класс Main в __main__.gs")
+            raise CodeGenError("Не найден класс для точки входа")
+
+        self._local_vars = set()
 
         body_lines = []
         for method in main_class.methods:
             for stmt in method.body:
                 line = self._generate_statement(stmt, indent=1)
                 line = line.replace('this->', 'main.')
+                line = line.replace('return;', 'return 0;')
                 body_lines.append(line)
 
         body = '\n'.join(body_lines)
 
         return f'''int main() {{
-    Main main;
+    {main_class.name} main;
 {body}
     return 0;
 }}'''
@@ -428,6 +464,38 @@ class CppCodeGen:
 
     # ===== Инструкции =====
 
+    def _get_module_for_function(self, name: str) -> Optional[str]:
+        """
+        Возвращает имя модуля (для #ifdef HAS_...) по имени встроенной функции.
+        
+        Используется чтобы обернуть вызовы функций из опциональных модулей
+        в #ifdef, чтобы код компилировался даже без установленной библиотеки.
+        
+        Например:
+            play_sound → SDL_MIXER    (#ifdef HAS_SDL_MIXER)
+            http_get  → CURL          (#ifdef HAS_CURL)
+            db_open   → SQLITE        (#ifdef HAS_SQLITE)
+        """
+        mapping = {
+            # Звук (SDL_mixer)
+            'play_sound': 'SDL_MIXER',
+            'play_music': 'SDL_MIXER',
+            'stop_music': 'SDL_MIXER',
+            # Сеть (curl)
+            'http_get': 'CURL',
+            'http_post': 'CURL',
+            'socket_connect': 'CURL',
+            'socket_send': 'CURL',
+            'socket_recv': 'CURL',
+            # База данных (SQLite)
+            'db_open': 'SQLITE',
+            'db_exec': 'SQLITE',
+            'db_close': 'SQLITE',
+            # Потоки
+            'thread_sleep': 'THREAD',
+        }
+        return mapping.get(name, None)
+
     def _generate_statement(self, stmt, indent: int = 2) -> str:
         """Генерирует одну C++ инструкцию с правильным отступом."""
         pad = '    ' * indent
@@ -490,7 +558,10 @@ class CppCodeGen:
         # Вызов функции или конструктора
         elif isinstance(stmt, FunCall):
             if stmt.name in BUILTIN_FUNCTIONS:
+                # Встроенные функции: sqrt, sin, random, play_sound, ...
                 args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
+        
+                # Конвертация типов: str(), int(), float(), bool()
                 if stmt.name == 'str':
                     self._use_std('string')
                     return f'{pad}std::to_string({args_str});'
@@ -500,11 +571,27 @@ class CppCodeGen:
                     return f'{pad}static_cast<float>({args_str});'
                 elif stmt.name == 'bool':
                     return f'{pad}static_cast<bool>({args_str});'
+        
+                # Опциональные модули (@load?): оборачиваем вызов в #ifdef
+                # Например: @load? "sdl_mixer" → play_sound() под #ifdef HAS_SDL_MIXER
+                module = self._get_module_for_function(stmt.name)
+                if module and module in self._optional_modules:
+                    return (
+                        f'{pad}#ifdef HAS_{module}\n'
+                        f'{pad}{stmt.name}({args_str});\n'
+                        f'{pad}#endif'
+                    )
+        
+                # Обычная встроенная функция (sqrt, random, ...)
                 return f'{pad}{stmt.name}({args_str});'
-            # Объект на стеке с авто-именем
+        
+            # Создание объекта: Hero(), Enemy("гоблин")
+            # Генерируем объект на стеке (не указатель)
             var_name = stmt.name.lower()
             args_str = ', '.join(self._expr_to_cpp(a) for a in stmt.args)
-            return f'{pad}{stmt.name} {var_name}({args_str});'
+            if args_str:
+                return f'{pad}{stmt.name} {var_name}({args_str});'
+            return f'{pad}{stmt.name} {var_name};'
 
         # Унарные операции
         elif isinstance(stmt, UnaryOp):

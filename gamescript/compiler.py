@@ -130,7 +130,7 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
     """
     Компилирует .gs файл в C++.
     Если файл содержит # --header — генерирует .h.
-    Иначе — .cpp.
+    Иначе — .cpp. При --build компилирует в бинарник.
     """
     input_file = Path(input_path)
     if input_file.suffix not in ALLOWED_EXTENSIONS:
@@ -156,75 +156,50 @@ def compile_file(input_path: str, output_path: Optional[str] = None,
                             build=build, debug=debug, short=short)
 
     if build:
-        target = 'linux'
-        if '--target' in sys.argv:
-            idx = sys.argv.index('--target')
-            if idx + 1 < len(sys.argv):
-                target = sys.argv[idx + 1]
+        binary_path = str(Path(output_path).with_suffix(''))
+        cmd = ['g++', '-std=c++17', '-I', str(output_dir), output_path]
 
-        if target == 'android':
-            ndk = Path.home() / 'android-ndk'
-            toolchain = ndk / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++'
-            
-            if not toolchain.exists():
-                print("Ошибка: Android NDK не найден. Установите: pkg install android-ndk")
-                sys.exit(1)
-            
-            so_path = output_dir / 'libgame.so'
-            result = subprocess.run([
-                str(toolchain), '-std=c++17', '-shared', '-fPIC',
-                '-I', str(output_dir),
-                output_path, '-o', str(so_path),
-                '-lSDL2', '-lSDL2_image', '-lSDL2_mixer'
-            ], capture_output=True, text=True)
-            
-            if result.returncode != 0:
-                print(f"Ошибка компиляции:\n{result.stderr}")
-            else:
-                jni_dir = Path(__file__).parent.parent / 'runtime/android/app/src/main/jniLibs/arm64-v8a'
-                jni_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy(so_path, jni_dir / 'libgame.so')
-                
-                subprocess.run(['gradle', 'assembleDebug'],
-                               cwd=str(Path(__file__).parent.parent / 'runtime/android'))
-                
-                apk = Path(__file__).parent.parent / 'runtime/android/app/build/outputs/apk/debug/app-debug.apk'
-                if apk.exists():
-                    target_apk = output_dir / 'game.apk'
-                    shutil.copy(apk, target_apk)
-                    print(f'✓ Собран APK: {target_apk}')
-                else:
-                    print("APK не собран. Проверьте установку Android SDK и Gradle.")
+        # Копируем gs_ncurses.h в папку сборки
+        ncurses_header = Path(__file__).parent.parent / 'runtime' / 'gs_ncurses.h'
+        if ncurses_header.exists():
+            shutil.copy(ncurses_header, output_dir / 'gs_ncurses.h')
+
+        # Звук (SDL_mixer) — только если установлен
+        sound_cpp = Path(__file__).parent.parent / 'runtime' / 'sound.cpp'
+        if _has_pkg('SDL2_mixer') and sound_cpp.exists():
+            cmd.append(str(sound_cpp))
+            cmd.extend(['-lSDL2', '-lSDL2_image', '-lSDL2_mixer'])
+
+        # Сеть (curl) — только если установлен
+        network_cpp = Path(__file__).parent.parent / 'runtime' / 'network.cpp'
+        if _has_pkg('libcurl') and network_cpp.exists():
+            cmd.append(str(network_cpp))
+            cmd.append('-lcurl')
+
+        # База данных (SQLite) — только если установлен
+        db_cpp = Path(__file__).parent.parent / 'runtime' / 'database.cpp'
+        if _has_pkg('sqlite3') and db_cpp.exists():
+            cmd.append(str(db_cpp))
+            cmd.append('-lsqlite3')
+
+        # Потоки — всегда
+        thread_cpp = Path(__file__).parent.parent / 'runtime' / 'thread.cpp'
+        if thread_cpp.exists():
+            cmd.append(str(thread_cpp))
+            cmd.append('-pthread')
+
+        # Ncurses — всегда
+        ncurses_cpp = Path(__file__).parent.parent / 'runtime' / 'ncurses.cpp'
+        if ncurses_cpp.exists():
+            cmd.append(str(ncurses_cpp))
+            cmd.append('-lncurses')
+
+        cmd.extend(['-o', binary_path])
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Ошибка компиляции:\n{result.stderr}")
         else:
-            binary_path = str(Path(output_path).with_suffix(''))
-            cmd = ['g++', '-std=c++17', '-I', str(output_dir), output_path]
-
-            sound_cpp = Path(__file__).parent.parent / 'runtime' / 'sound.cpp'
-            if _has_pkg('SDL2_mixer') and sound_cpp.exists():
-                cmd.append(str(sound_cpp))
-                cmd.extend(['-lSDL2', '-lSDL2_image', '-lSDL2_mixer', '-DHAS_SDL_MIXER'])
-
-            network_cpp = Path(__file__).parent.parent / 'runtime' / 'network.cpp'
-            if _has_pkg('libcurl') and network_cpp.exists():
-                cmd.append(str(network_cpp))
-                cmd.append('-lcurl')
-
-            db_cpp = Path(__file__).parent.parent / 'runtime' / 'database.cpp'
-            if _has_pkg('sqlite3') and db_cpp.exists():
-                cmd.append(str(db_cpp))
-                cmd.append('-lsqlite3')
-
-            thread_cpp = Path(__file__).parent.parent / 'runtime' / 'thread.cpp'
-            if thread_cpp.exists():
-                cmd.append(str(thread_cpp))
-                cmd.append('-pthread')
-
-            cmd.extend(['-o', binary_path])
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                print(f"Ошибка компиляции:\n{result.stderr}")
-            else:
-                print(f'✓ Собран бинарник: {binary_path}')
+            print(f'✓ Собран бинарник: {binary_path}')
 
     return cpp_code
 

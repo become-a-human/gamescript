@@ -9,4 +9,6 @@ examples/generated/
 *.egg
 .DS_Store
 Thumbs.db
-EOF
+EOF*.o
+editor_test
+test_editor
